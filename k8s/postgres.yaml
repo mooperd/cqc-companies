@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cqc
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret-cqc
+  namespace: cqc
+type: Opaque
+stringData:
+  POSTGRES_DB: darwinist
+  POSTGRES_USER: darwinist
+  POSTGRES_PASSWORD: darwinist
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc-cqc
+  namespace: cqc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: managed-csi  # For Azure Disk
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: cqc
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret-cqc
+              key: POSTGRES_DB
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret-cqc
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret-cqc
+              key: POSTGRES_PASSWORD
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "darwinist"]
+          initialDelaySeconds: 5
+          periodSeconds: 4
+        livenessProbe:
+          exec:
+            command: ["pg_isready", "-U", "darwinist"]
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 3
+        volumeMounts:
+        - mountPath: /var/lib/postgresql/data
+          name: postgres-storage-cqc
+      volumes:
+      - name: postgres-storage-cqc
+        persistentVolumeClaim:
+          claimName: postgres-pvc-cqc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service-cqc
+  namespace: cqc
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

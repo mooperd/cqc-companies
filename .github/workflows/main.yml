@@ -1,0 +1,97 @@
+name: Build and Deploy to AKS
+
+on:
+  push:
+    branches: 
+      - '*'
+
+env:
+  TLD: darwinist.io
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ startsWith(github.ref, 'refs/heads/fusion') && 'fusion' || '' }}
+    steps:
+    - name: Install jq and envsubst (fast)
+      run: |
+        # Install jq
+        if ! command -v jq > /dev/null; then
+          curl -L -o jq https://github.com/stedolan/jq/releases/download/jq-1.7.1/jq-linux64
+          chmod +x jq
+          sudo mv jq /usr/local/bin/
+        fi
+        # Install envsubst (from gettext)
+        if ! command -v envsubst > /dev/null; then
+          curl -L -o envsubst https://github.com/a8m/envsubst/releases/download/v1.4.2/envsubst-linux-amd64
+          chmod +x envsubst
+          sudo mv envsubst /usr/local/bin/
+        fi
+
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set environment variables
+      id: vars
+      run: |
+        echo "SHORT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
+        echo "NAMESPACE=${GITHUB_REF##*/}" >> $GITHUB_ENV
+        echo "SERVICE_NAME=${GITHUB_REPOSITORY##*/}" >> $GITHUB_ENV
+        echo "BUILD_IMAGE=${{ secrets.AKS_RESOURCE_GROUP }}.azurecr.io/${GITHUB_REPOSITORY##*/}:${GITHUB_SHA::8}" >> $GITHUB_ENV
+        echo "HOSTNAME=${GITHUB_REF##*/}.${TLD}" >> $GITHUB_ENV
+        echo "CERT_NAME=wildcard-${TLD//./-}" >> $GITHUB_ENV
+        echo "VIEWER_DOMAIN=${{ secrets.VIEWER_DOMAIN }}" >> $GITHUB_ENV
+
+    - name: Show environment
+      run: |
+        echo ${{ env.CONTAINER_REGISTRY }} | sed 's/./& /g'
+        echo ${{ env.BUILD_IMAGE }} | sed 's/./& /g'
+
+    - name: Log in to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Login to Azure Container Registry
+      run: |
+        az acr login --name ${{ secrets.AKS_RESOURCE_GROUP }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ env.BUILD_IMAGE }}
+        build-args: |
+          GITHUB_SHA=${GITHUB_SHA}
+          GITHUB_REF=${GITHUB_REF}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Set AKS context
+      run: |
+        az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} --name ${{ secrets.AKS_RESOURCE_GROUP }} --admin
+
+    - name: Deploy to AKS
+      env:
+        IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        NAMESPACE: ${{ env.NAMESPACE }}
+      run: |
+        kubectl get nodes
+        cat k8s/namespace.yaml | envsubst | kubectl apply -f -
+
+        kubectl get configmap application-environment-variables -n default -o json \
+          | jq 'del(.metadata.namespace, .metadata.creationTimestamp, .metadata.resourceVersion, .metadata.selfLink, .metadata.uid, .metadata.annotations, .metadata.managedFields)' \
+          | kubectl apply -n $NAMESPACE -f -
+        cat k8s/namespace.yaml | envsubst | kubectl apply -f -
+        cat k8s/deployment.yaml | envsubst | kubectl apply -n $NAMESPACE -f -
+        cat k8s/service.yaml | envsubst | kubectl apply -n $NAMESPACE -f -
+        cat k8s/ingress.yaml | envsubst | kubectl apply -n $NAMESPACE -f -
+        # Copy SSL certs from default namespace if needed
+        kubectl get secret $CERT_NAME -o json \
+          | jq 'del(.metadata["namespace","creationTimestamp","resourceVersion","selfLink","uid"])' \
+          | kubectl apply -n $NAMESPACE -f -
+        kubectl rollout status deployment/$SERVICE_NAME -n $NAMESPACE

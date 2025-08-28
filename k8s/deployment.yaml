@@ -1,0 +1,50 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: $SERVICE_NAME
+  labels:
+    app: $SERVICE_NAME
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: $SERVICE_NAME
+  template:
+    metadata:
+      name: $SERVICE_NAME
+      labels:
+        app: $SERVICE_NAME
+        tier: web
+    spec:
+      containers:
+        - name: $SERVICE_NAME
+          image: $BUILD_IMAGE
+          imagePullPolicy: Always
+          envFrom:
+          - configMapRef:
+              name: application-environment-variables
+          env:
+            - name: VIEWER_DOMAIN
+              value: $VIEWER_DOMAIN
+            - name: DATABASE_URL
+              value: "postgresql://darwinist:darwinist@postgres-service.default:5432/darwinist"
+            - name: PRE_SHARED_API_KEY
+              value: "69937dff-504e-400b-b10a-f1995144b677"
+          ports:
+          - name: web
+            containerPort: 5000
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 15
+            timeoutSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 5
+            timeoutSeconds: 3
+
