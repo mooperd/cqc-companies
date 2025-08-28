@@ -2,6 +2,44 @@ from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
 
+class Provider(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    cqc_provider_id = db.Column(db.String(100))
+    website = db.Column(db.String(500))
+    email_address = db.Column(db.String(255))
+    phone_number = db.Column(db.String(50))
+    address_1 = db.Column(db.String(255))
+    address_2 = db.Column(db.String(255))
+    town_city = db.Column(db.String(255))
+    county = db.Column(db.String(255))
+    postcode = db.Column(db.String(20))
+    
+    facilities = db.relationship('Facility', backref='provider', lazy=True)
+
+class Facility(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255))
+    address_1 = db.Column(db.String(255))
+    address_2 = db.Column(db.String(255))
+    town_city = db.Column(db.String(255))
+    county = db.Column(db.String(255))
+    postcode = db.Column(db.String(20))
+    phone_number = db.Column(db.String(50))
+    cqc_location_id = db.Column(db.String(100))
+    website = db.Column(db.String(500))
+    local_authority = db.Column(db.String(255))
+    region = db.Column(db.String(255))
+    report_publication_date = db.Column(db.String(50))
+    url = db.Column(db.String(500))
+    also_known_as = db.Column(db.Text)
+    specialisms_services = db.Column(db.Text)
+    service_types = db.Column(db.Text)
+    email_address = db.Column(db.String(255))
+    
+    provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'), nullable=False)
+
+# Keep Contact for backward compatibility during migration
 class Contact(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255))

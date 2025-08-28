@@ -2,13 +2,13 @@ import os
 import csv
 from flask import Flask, render_template, request, redirect, url_for, flash
 from dotenv import load_dotenv
-from model import db, Contact
+from model import db, Provider, Facility, Contact
 
 load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://darwinist:darwinist@localhost:5431/darwinist')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://darwinist:darwinist@localhost:5432/darwinist')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
@@ -21,28 +21,28 @@ def index():
     search_term = request.args.get('search', '')
     per_page = 50
     
-    query = Contact.query
+    query = Facility.query
     
     if search_term:
         search_filter = f"%{search_term}%"
-        query = query.filter(
+        query = query.join(Provider).filter(
             db.or_(
-                Contact.name.ilike(search_filter),
-                Contact.town_city.ilike(search_filter),
-                Contact.region.ilike(search_filter),
-                Contact.service_types.ilike(search_filter),
-                Contact.specialisms_services.ilike(search_filter),
-                Contact.provider_name.ilike(search_filter)
+                Facility.name.ilike(search_filter),
+                Facility.town_city.ilike(search_filter),
+                Facility.region.ilike(search_filter),
+                Facility.service_types.ilike(search_filter),
+                Facility.specialisms_services.ilike(search_filter),
+                Provider.name.ilike(search_filter)
             )
         )
     
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-    contacts = pagination.items
-    total_contacts = query.count()
+    facilities = pagination.items
+    total_facilities = query.count()
     
     return render_template('index.html', 
-                         contacts=contacts,
-                         total_contacts=total_contacts,
+                         facilities=facilities,
+                         total_facilities=total_facilities,
                          page=page,
                          total_pages=pagination.pages,
                          search_term=search_term)
@@ -60,13 +60,30 @@ def import_csv():
     
     if file and file.filename.endswith('.csv'):
         try:
-            # Read CSV content
             content = file.read().decode('utf-8')
             csv_reader = csv.DictReader(content.splitlines())
             
             imported_count = 0
             for row in csv_reader:
-                contact = Contact(
+                provider_name = row.get('Provider name', '').strip()
+                cqc_provider_id = row.get('CQC Provider ID (for office use only)', '').strip()
+                
+                if not provider_name:
+                    continue
+                
+                # Find or create provider
+                provider = Provider.query.filter_by(name=provider_name).first()
+                if not provider:
+                    provider = Provider(
+                        name=provider_name,
+                        cqc_provider_id=cqc_provider_id,
+                        website=row.get('Website', '').strip()
+                    )
+                    db.session.add(provider)
+                    db.session.flush()  # Get the provider ID
+                
+                # Create facility
+                facility = Facility(
                     name=row.get('Name', '').strip(),
                     address_1=row.get('Address 1', '').strip(),
                     address_2=row.get('Address 2', '').strip(),
@@ -74,7 +91,6 @@ def import_csv():
                     county=row.get('County', '').strip(),
                     postcode=row.get('Postcode', '').strip(),
                     phone_number=row.get('Phone number', '').strip(),
-                    cqc_provider_id=row.get('CQC Provider ID (for office use only)', '').strip(),
                     cqc_location_id=row.get('CQC Location ID', '').strip(),
                     website=row.get('Website', '').strip(),
                     local_authority=row.get('Local authority', '').strip(),
@@ -84,14 +100,14 @@ def import_csv():
                     also_known_as=row.get('Also known as', '').strip(),
                     specialisms_services=row.get('Specialisms/services', '').strip(),
                     service_types=row.get('Service types', '').strip(),
-                    provider_name=row.get('Provider name', '').strip(),
-                    email_address=''  # Empty for now, will be added later
+                    email_address='',
+                    provider_id=provider.id
                 )
-                db.session.add(contact)
+                db.session.add(facility)
                 imported_count += 1
             
             db.session.commit()
-            flash(f'Successfully imported {imported_count} contacts')
+            flash(f'Successfully imported {imported_count} facilities')
             
         except Exception as e:
             db.session.rollback()
@@ -100,6 +116,29 @@ def import_csv():
         flash('Please select a valid CSV file')
     
     return redirect(url_for('index'))
+
+@app.route('/providers')
+def providers():
+    page = request.args.get('page', 1, type=int)
+    search_term = request.args.get('search', '')
+    per_page = 20
+    
+    query = Provider.query
+    
+    if search_term:
+        search_filter = f"%{search_term}%"
+        query = query.filter(Provider.name.ilike(search_filter))
+    
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    providers = pagination.items
+    total_providers = query.count()
+    
+    return render_template('providers.html', 
+                         providers=providers,
+                         total_providers=total_providers,
+                         page=page,
+                         total_pages=pagination.pages,
+                         search_term=search_term)
 
 def create_tables():
     with app.app_context():

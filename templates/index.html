@@ -8,6 +8,15 @@
     <div class="container mt-4">
         <h1>Simple CRM</h1>
         
+        <ul class="nav nav-tabs mb-4">
+            <li class="nav-item">
+                <a class="nav-link active" href="/">Facilities</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/providers">Providers</a>
+            </li>
+        </ul>
+        
         {% with messages = get_flashed_messages() %}
             {% if messages %}
                 {% for message in messages %}
@@ -52,48 +61,48 @@
         
         <div class="card">
             <div class="card-header">
-                <h5>Contacts ({{ total_contacts }} total)</h5>
+                <h5>Facilities ({{ total_facilities }} total)</h5>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
                     <table class="table table-striped">
                         <thead>
                             <tr>
-                                <th>Name</th>
+                                <th>Facility Name</th>
+                                <th>Provider</th>
                                 <th>Address</th>
                                 <th>Phone</th>
-                                <th>Email</th>
                                 <th>Website</th>
                                 <th>Region</th>
                                 <th>Service Types</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for contact in contacts %}
+                            {% for facility in facilities %}
                             <tr>
-                                <td>{{ contact.name or '' }}</td>
+                                <td>{{ facility.name or '' }}</td>
+                                <td><strong>{{ facility.provider.name or '' }}</strong></td>
                                 <td>
-                                    {{ contact.address_1 or '' }}{% if contact.address_2 %}, {{ contact.address_2 }}{% endif %}
-                                    {% if contact.town_city %}<br>{{ contact.town_city }}{% endif %}
-                                    {% if contact.postcode %} {{ contact.postcode }}{% endif %}
+                                    {{ facility.address_1 or '' }}{% if facility.address_2 %}, {{ facility.address_2 }}{% endif %}
+                                    {% if facility.town_city %}<br>{{ facility.town_city }}{% endif %}
+                                    {% if facility.postcode %} {{ facility.postcode }}{% endif %}
                                 </td>
-                                <td>{{ contact.phone_number or '' }}</td>
-                                <td>{{ contact.email_address or '' }}</td>
+                                <td>{{ facility.phone_number or '' }}</td>
                                 <td>
-                                    {% if contact.website %}
-                                        <a href="{{ contact.website }}" target="_blank">{{ contact.website[:30] }}...</a>
+                                    {% if facility.website %}
+                                        <a href="{{ facility.website }}" target="_blank">{{ facility.website[:30] }}...</a>
                                     {% endif %}
                                 </td>
-                                <td>{{ contact.region or '' }}</td>
-                                <td>{{ contact.service_types or '' }}</td>
+                                <td>{{ facility.region or '' }}</td>
+                                <td>{{ facility.service_types or '' }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
                 
-                {% if contacts|length == 0 %}
-                    <p class="text-muted">No contacts found.</p>
+                {% if facilities|length == 0 %}
+                    <p class="text-muted">No facilities found.</p>
                 {% endif %}
                 
                 <!-- Pagination -->

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple CRM - Providers</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-4">
+        <h1>Simple CRM</h1>
+        
+        <ul class="nav nav-tabs mb-4">
+            <li class="nav-item">
+                <a class="nav-link" href="/">Facilities</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link active" href="/providers">Providers</a>
+            </li>
+        </ul>
+        
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-success">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Search Providers</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="GET" action="/providers">
+                            <div class="mb-3">
+                                <input type="text" class="form-control" name="search" placeholder="Search by provider name..." value="{{ search_term }}">
+                            </div>
+                            <button type="submit" class="btn btn-secondary">Search</button>
+                            <a href="/providers" class="btn btn-outline-secondary">Clear</a>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5>Providers ({{ total_providers }} total)</h5>
+            </div>
+            <div class="card-body">
+                {% for provider in providers %}
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6><strong>{{ provider.name }}</strong> ({{ provider.facilities|length }} facilities)</h6>
+                        {% if provider.website %}
+                            <small><a href="{{ provider.website }}" target="_blank">{{ provider.website }}</a></small>
+                        {% endif %}
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Facility Name</th>
+                                        <th>Address</th>
+                                        <th>Phone</th>
+                                        <th>Region</th>
+                                        <th>Service Types</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for facility in provider.facilities %}
+                                    <tr>
+                                        <td>{{ facility.name or '' }}</td>
+                                        <td>
+                                            {{ facility.address_1 or '' }}{% if facility.address_2 %}, {{ facility.address_2 }}{% endif %}
+                                            {% if facility.town_city %}<br>{{ facility.town_city }}{% endif %}
+                                            {% if facility.postcode %} {{ facility.postcode }}{% endif %}
+                                        </td>
+                                        <td>{{ facility.phone_number or '' }}</td>
+                                        <td>{{ facility.region or '' }}</td>
+                                        <td>{{ facility.service_types or '' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+                
+                {% if providers|length == 0 %}
+                    <p class="text-muted">No providers found.</p>
+                {% endif %}
+                
+                <!-- Pagination -->
+                {% if total_pages > 1 %}
+                <nav>
+                    <ul class="pagination">
+                        {% if page > 1 %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ page - 1 }}{% if search_term %}&search={{ search_term }}{% endif %}">Previous</a>
+                            </li>
+                        {% endif %}
+                        
+                        {% for p in range(1, total_pages + 1) %}
+                            {% if p == page %}
+                                <li class="page-item active">
+                                    <span class="page-link">{{ p }}</span>
+                                </li>
+                            {% elif p <= 3 or p >= total_pages - 2 or (p >= page - 2 and p <= page + 2) %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?page={{ p }}{% if search_term %}&search={{ search_term }}{% endif %}">{{ p }}</a>
+                                </li>
+                            {% elif p == 4 or p == total_pages - 3 %}
+                                <li class="page-item disabled">
+                                    <span class="page-link">...</span>
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+                        
+                        {% if page < total_pages %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ page + 1 }}{% if search_term %}&search={{ search_term }}{% endif %}">Next</a>
+                            </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
