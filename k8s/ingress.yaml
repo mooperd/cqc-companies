@@ -14,14 +14,14 @@ spec:
         - cqc.darwinist.io
       secretName: $CERT_NAME
   rules:
-    - host: $HOSTNAME
+    - host: cqc.darwinist.io
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: cqc.darwinist.io
+                name: cqc-companies
                 port:
                   number: 80
 
