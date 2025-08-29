@@ -10,7 +10,9 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 
-
+@app.route('/healthz')
+def healthz():
+    return 'OK', 200
 
 @app.route('/')
 def index():
