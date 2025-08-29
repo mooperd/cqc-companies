@@ -27,7 +27,7 @@ spec:
               name: application-environment-variables
           env:
             - name: DATABASE_URL
-              value: "postgresql://darwinist:darwinist@postgres.cqc:5432/darwinist"
+              value: "postgresql://darwinist:darwinist@postgres-service-cqc:5432/darwinist"
           ports:
           - name: web
             containerPort: 5000
