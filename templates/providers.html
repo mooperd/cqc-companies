@@ -29,15 +29,69 @@
             <div class="col-md-12">
                 <div class="card">
                     <div class="card-header">
-                        <h5>Search Providers</h5>
+                        <h5>Advanced Provider Search & Filters</h5>
                     </div>
                     <div class="card-body">
                         <form method="GET" action="/providers">
-                            <div class="mb-3">
-                                <input type="text" class="form-control" name="search" placeholder="Search by provider name..." value="{{ search_term }}">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="search" class="form-label">Provider Name</label>
+                                    <input type="text" class="form-control" id="search" name="search" placeholder="Search by provider name..." value="{{ search_term }}">
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label for="sort_by" class="form-label">Sort By</label>
+                                    <select class="form-select" id="sort_by" name="sort_by">
+                                        <option value="name" {% if sort_by == 'name' %}selected{% endif %}>Provider Name</option>
+                                        <option value="facility_count" {% if sort_by == 'facility_count' %}selected{% endif %}>Number of Facilities</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label class="form-label">Options</label>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="exclude_nhs" name="exclude_nhs" {% if exclude_nhs %}checked{% endif %}>
+                                        <label class="form-check-label" for="exclude_nhs">
+                                            Exclude NHS Providers
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
-                            <button type="submit" class="btn btn-secondary">Search</button>
-                            <a href="/providers" class="btn btn-outline-secondary">Clear</a>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="specialisms" class="form-label">Filter by Specialisms/Services</label>
+                                    <select class="form-select" id="specialisms" name="specialisms">
+                                        <option value="">All Specialisms</option>
+                                        {% for specialism in specialisms_options %}
+                                            <option value="{{ specialism }}" {% if specialisms_filter == specialism %}selected{% endif %}>{{ specialism }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="service_types" class="form-label">Filter by Service Types</label>
+                                    <select class="form-select" id="service_types" name="service_types">
+                                        <option value="">All Service Types</option>
+                                        {% for service_type in service_types_options %}
+                                            <option value="{{ service_type }}" {% if service_types_filter == service_type %}selected{% endif %}>{{ service_type }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-12">
+                                    <button type="submit" class="btn btn-primary">Apply Filters</button>
+                                    <a href="/providers" class="btn btn-outline-secondary">Clear All</a>
+                                    <span class="ms-3 text-muted">
+                                        {% if exclude_nhs or specialisms_filter or service_types_filter %}
+                                            <small>Active filters: 
+                                                {% if exclude_nhs %}<span class="badge bg-info">No NHS</span> {% endif %}
+                                                {% if specialisms_filter %}<span class="badge bg-success">{{ specialisms_filter[:30] }}...</span> {% endif %}
+                                                {% if service_types_filter %}<span class="badge bg-warning">{{ service_types_filter[:30] }}...</span> {% endif %}
+                                            </small>
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            </div>
                         </form>
                     </div>
                 </div>
@@ -46,7 +100,21 @@
         
         <div class="card">
             <div class="card-header">
-                <h5>Providers ({{ total_providers }} total)</h5>
+                <div class="row">
+                    <div class="col-md-8">
+                        <h5>Providers ({{ total_providers }} total)</h5>
+                        {% if sort_by == 'facility_count' %}
+                            <small class="text-muted">Sorted by number of facilities (most first)</small>
+                        {% else %}
+                            <small class="text-muted">Sorted alphabetically by name</small>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-4 text-end">
+                        {% if exclude_nhs or specialisms_filter or service_types_filter %}
+                            <span class="badge bg-primary">Filtered Results</span>
+                        {% endif %}
+                    </div>
+                </div>
             </div>
             <div class="card-body">
                 {% for provider in providers %}
@@ -94,8 +162,14 @@
                         </div>
                         
                         <!-- Facilities Table -->
-                        <h6>Facilities ({{ provider.facilities|length }})</h6>
-                        <div class="table-responsive">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h6>Facilities ({{ provider.facilities|length }})</h6>
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#facilities-{{ provider.id }}" aria-expanded="false">
+                                <span class="collapse-text">Show</span> Facilities
+                            </button>
+                        </div>
+                        <div class="collapse" id="facilities-{{ provider.id }}">
+                            <div class="table-responsive">
                             <table class="table table-sm table-striped">
                                 <thead class="table-light">
                                     <tr>
@@ -188,6 +262,7 @@
                                     {% endfor %}
                                 </tbody>
                             </table>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -234,5 +309,25 @@
             </div>
         </div>
     </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Update button text when collapsing/expanding
+        document.addEventListener('DOMContentLoaded', function() {
+            const collapseElements = document.querySelectorAll('[data-bs-toggle="collapse"]');
+            collapseElements.forEach(function(button) {
+                const target = document.querySelector(button.getAttribute('data-bs-target'));
+                const textSpan = button.querySelector('.collapse-text');
+                
+                target.addEventListener('shown.bs.collapse', function() {
+                    textSpan.textContent = 'Hide';
+                });
+                
+                target.addEventListener('hidden.bs.collapse', function() {
+                    textSpan.textContent = 'Show';
+                });
+            });
+        });
+    </script>
 </body>
 </html>

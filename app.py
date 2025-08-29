@@ -120,24 +120,145 @@ def import_csv():
 def providers():
     page = request.args.get('page', 1, type=int)
     search_term = request.args.get('search', '')
+    exclude_nhs = request.args.get('exclude_nhs', '') == 'on'
+    sort_by = request.args.get('sort_by', 'name')
+    specialisms_filter = request.args.get('specialisms', '')
+    service_types_filter = request.args.get('service_types', '')
     per_page = 20
     
-    query = Provider.query
+    # Base query with facilities joined for filtering
+    query = Provider.query.join(Facility)
     
+    # Search filter
     if search_term:
         search_filter = f"%{search_term}%"
         query = query.filter(Provider.name.ilike(search_filter))
     
+    # Exclude NHS providers
+    if exclude_nhs:
+        query = query.filter(~Provider.name.ilike('%nhs%'))
+    
+    # Filter by specialisms
+    if specialisms_filter:
+        query = query.filter(Facility.specialisms_services.ilike(f'%{specialisms_filter}%'))
+    
+    # Filter by service types
+    if service_types_filter:
+        query = query.filter(Facility.service_types.ilike(f'%{service_types_filter}%'))
+    
+    # Remove duplicates from joins
+    query = query.distinct()
+    
+    # Sorting - need to handle facility count differently to avoid duplicate joins
+    if sort_by == 'facility_count':
+        # Use subquery to count facilities and sort
+        from sqlalchemy import func
+        facility_counts = db.session.query(
+            Provider.id,
+            func.count(Facility.id).label('facility_count')
+        ).outerjoin(Facility).group_by(Provider.id).subquery()
+        
+        # Reset query to avoid duplicate joins
+        query = Provider.query
+        
+        # Apply filters again without joins
+        if search_term:
+            search_filter = f"%{search_term}%"
+            query = query.filter(Provider.name.ilike(search_filter))
+        
+        if exclude_nhs:
+            query = query.filter(~Provider.name.ilike('%nhs%'))
+        
+        # Apply facility-based filters using EXISTS
+        if specialisms_filter:
+            query = query.filter(
+                Provider.facilities.any(Facility.specialisms_services.ilike(f'%{specialisms_filter}%'))
+            )
+        
+        if service_types_filter:
+            query = query.filter(
+                Provider.facilities.any(Facility.service_types.ilike(f'%{service_types_filter}%'))
+            )
+        
+        # Join with facility counts and sort
+        query = query.join(facility_counts, Provider.id == facility_counts.c.id).order_by(facility_counts.c.facility_count.desc())
+    else:
+        # Default sort by name
+        query = query.order_by(Provider.name)
+    
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     providers = pagination.items
     total_providers = query.count()
+    
+    # Define filter options
+    specialisms_options = [
+        "Accommodation for persons who require nursing or personal care",
+        "Caring for adults over 65 yrs",
+        "Caring for adults under 65 yrs",
+        "Caring for children (0 - 18yrs)",
+        "Caring for people whose rights are restricted under the Mental Health Act",
+        "Dementia",
+        "Diagnostic and screening procedures",
+        "Eating disorders",
+        "Family planning services",
+        "Learning disabilities",
+        "Maternity and midwifery services",
+        "Mental health conditions",
+        "Personal care",
+        "Physical disabilities",
+        "Sensory impairments",
+        "Services for everyone",
+        "Substance misuse problems",
+        "Surgical procedures",
+        "Transport services, triage and medical advice provided remotely",
+        "Treatment of disease, disorder or injury"
+    ]
+    
+    service_types_options = [
+        "Ambulances",
+        "Clinic",
+        "Community services - Healthcare",
+        "Community services - Learning disabilities",
+        "Community services - Mental Health",
+        "Community services - Nursing",
+        "Community services - Substance abuse",
+        "Dentist",
+        "Diagnosis/screening",
+        "Doctors/GPs",
+        "Home hospice care",
+        "Homecare agencies",
+        "Hospital",
+        "Hospitals - Mental health/capacity",
+        "Hospice",
+        "Long-term conditions",
+        "Mobile doctors",
+        "NHS Body",
+        "Nursing homes",
+        "Organisation",
+        "Partnership",
+        "Phone/online advice",
+        "Prison healthcare",
+        "Rehabilitation (illness/injury)",
+        "Rehabilitation (substance abuse)",
+        "Residential homes",
+        "Shared lives",
+        "Supported housing",
+        "Supported living",
+        "Urgent care centres"
+    ]
     
     return render_template('providers.html', 
                          providers=providers,
                          total_providers=total_providers,
                          page=page,
                          total_pages=pagination.pages,
-                         search_term=search_term)
+                         search_term=search_term,
+                         exclude_nhs=exclude_nhs,
+                         sort_by=sort_by,
+                         specialisms_filter=specialisms_filter,
+                         service_types_filter=service_types_filter,
+                         specialisms_options=specialisms_options,
+                         service_types_options=service_types_options)
 
 
 
