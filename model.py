@@ -4,8 +4,8 @@ db = SQLAlchemy()
 
 class Provider(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), nullable=False)
-    cqc_provider_id = db.Column(db.String(100))
+    name = db.Column(db.String(255), nullable=False, index=True)
+    cqc_provider_id = db.Column(db.String(100), index=True)
     website = db.Column(db.String(500))
     email_address = db.Column(db.String(255))
     phone_number = db.Column(db.String(50))
@@ -26,7 +26,7 @@ class Facility(db.Model):
     county = db.Column(db.String(255))
     postcode = db.Column(db.String(20))
     phone_number = db.Column(db.String(50))
-    cqc_location_id = db.Column(db.String(100))
+    cqc_location_id = db.Column(db.String(100), index=True)
     website = db.Column(db.String(500))
     local_authority = db.Column(db.String(255))
     region = db.Column(db.String(255))
@@ -37,7 +37,28 @@ class Facility(db.Model):
     service_types = db.Column(db.Text)
     email_address = db.Column(db.String(255))
     
-    provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'), nullable=False)
+    # Location enrichment fields
+    registered_manager = db.Column(db.String(255))
+    location_uprn = db.Column(db.String(50))
+    location_telephone = db.Column(db.String(50))
+    location_web_address = db.Column(db.String(500))
+    primary_inspection_category = db.Column(db.String(255))
+    care_home_beds = db.Column(db.Integer)
+    location_start_date = db.Column(db.String(50))
+    location_end_date = db.Column(db.String(50))
+    dormant = db.Column(db.String(10))
+    latest_overall_rating = db.Column(db.String(50))
+    publication_date = db.Column(db.String(50))
+    service_users_supported = db.Column(db.Text)
+    care_home_size_band = db.Column(db.String(100))
+    location_length_service_band = db.Column(db.String(100))
+    safe_rating = db.Column(db.String(50))
+    effective_rating = db.Column(db.String(50))
+    caring_rating = db.Column(db.String(50))
+    responsive_rating = db.Column(db.String(50))
+    well_led_rating = db.Column(db.String(50))
+    
+    provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'), nullable=False, index=True)
 
 # Keep Contact for backward compatibility during migration
 class Contact(db.Model):

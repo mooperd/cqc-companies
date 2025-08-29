@@ -89,7 +89,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres-service-cqc
+  name: postgres
   namespace: cqc
 spec:
   type: ClusterIP

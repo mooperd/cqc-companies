@@ -65,36 +65,132 @@
             </div>
             <div class="card-body">
                 <div class="table-responsive">
-                    <table class="table table-striped">
-                        <thead>
+                    <table class="table table-striped table-sm">
+                        <thead class="table-dark">
                             <tr>
-                                <th>Facility Name</th>
-                                <th>Provider</th>
-                                <th>Address</th>
-                                <th>Phone</th>
-                                <th>Website</th>
-                                <th>Region</th>
-                                <th>Service Types</th>
+                                <th style="width: 20%;">Facility Details</th>
+                                <th style="width: 15%;">Provider</th>
+                                <th style="width: 10%;">Ratings</th>
+                                <th style="width: 15%;">Contact Info</th>
+                                <th style="width: 15%;">Location</th>
+                                <th style="width: 10%;">Capacity</th>
+                                <th style="width: 15%;">Services</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for facility in facilities %}
                             <tr>
-                                <td>{{ facility.name or '' }}</td>
-                                <td><strong>{{ facility.provider.name or '' }}</strong></td>
+                                <td>
+                                    <strong>{{ facility.name or 'Unnamed Facility' }}</strong>
+                                    {% if facility.also_known_as %}
+                                        <br><small class="text-muted"><em>{{ facility.also_known_as }}</em></small>
+                                    {% endif %}
+                                    {% if facility.cqc_location_id %}
+                                        <br><small class="text-muted">CQC ID: {{ facility.cqc_location_id }}</small>
+                                    {% endif %}
+                                    {% if facility.registered_manager %}
+                                        <br><small><strong>Manager:</strong> {{ facility.registered_manager }}</small>
+                                    {% endif %}
+                                    {% if facility.primary_inspection_category %}
+                                        <br><small class="text-info">{{ facility.primary_inspection_category }}</small>
+                                    {% endif %}
+                                    {% if facility.dormant == 'Y' %}
+                                        <br><span class="badge bg-warning">Dormant</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <strong>{{ facility.provider.name or 'Unknown Provider' }}</strong>
+                                    {% if facility.provider.cqc_provider_id %}
+                                        <br><small class="text-muted">ID: {{ facility.provider.cqc_provider_id }}</small>
+                                    {% endif %}
+                                    {% if facility.provider.website %}
+                                        <br><small><a href="{{ facility.provider.website }}" target="_blank">Provider Website</a></small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if facility.latest_overall_rating %}
+                                        {% set rating = facility.latest_overall_rating %}
+                                        {% if rating == 'Outstanding' %}
+                                            <span class="badge bg-success mb-1">{{ rating }}</span>
+                                        {% elif rating == 'Good' %}
+                                            <span class="badge bg-primary mb-1">{{ rating }}</span>
+                                        {% elif rating == 'Requires improvement' %}
+                                            <span class="badge bg-warning mb-1">{{ rating }}</span>
+                                        {% elif rating == 'Inadequate' %}
+                                            <span class="badge bg-danger mb-1">{{ rating }}</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary mb-1">{{ rating }}</span>
+                                        {% endif %}
+                                    {% endif %}
+                                    {% if facility.safe_rating or facility.effective_rating or facility.caring_rating or facility.responsive_rating or facility.well_led_rating %}
+                                        <br><small>
+                                            {% if facility.safe_rating %}<span class="badge bg-light text-dark">Safe: {{ facility.safe_rating }}</span><br>{% endif %}
+                                            {% if facility.effective_rating %}<span class="badge bg-light text-dark">Effective: {{ facility.effective_rating }}</span><br>{% endif %}
+                                            {% if facility.caring_rating %}<span class="badge bg-light text-dark">Caring: {{ facility.caring_rating }}</span><br>{% endif %}
+                                            {% if facility.responsive_rating %}<span class="badge bg-light text-dark">Responsive: {{ facility.responsive_rating }}</span><br>{% endif %}
+                                            {% if facility.well_led_rating %}<span class="badge bg-light text-dark">Well-led: {{ facility.well_led_rating }}</span>{% endif %}
+                                        </small>
+                                    {% endif %}
+                                    {% if facility.publication_date %}
+                                        <br><small class="text-muted">Published: {{ facility.publication_date[:10] }}</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if facility.phone_number or facility.location_telephone %}
+                                        <strong>Phone:</strong> {{ facility.phone_number or facility.location_telephone }}<br>
+                                    {% endif %}
+                                    {% if facility.email_address %}
+                                        <strong>Email:</strong> {{ facility.email_address }}<br>
+                                    {% endif %}
+                                    {% if facility.website or facility.location_web_address %}
+                                        <a href="{{ facility.website or facility.location_web_address }}" target="_blank" class="btn btn-sm btn-outline-primary">Website</a><br>
+                                    {% endif %}
+                                    {% if facility.url %}
+                                        <a href="{{ facility.url }}" target="_blank" class="btn btn-sm btn-outline-secondary mt-1">CQC Report</a>
+                                    {% endif %}
+                                </td>
                                 <td>
                                     {{ facility.address_1 or '' }}{% if facility.address_2 %}, {{ facility.address_2 }}{% endif %}
                                     {% if facility.town_city %}<br>{{ facility.town_city }}{% endif %}
-                                    {% if facility.postcode %} {{ facility.postcode }}{% endif %}
-                                </td>
-                                <td>{{ facility.phone_number or '' }}</td>
-                                <td>
-                                    {% if facility.website %}
-                                        <a href="{{ facility.website }}" target="_blank">{{ facility.website[:30] }}...</a>
+                                    {% if facility.county %}, {{ facility.county }}{% endif %}
+                                    {% if facility.postcode %}<br>{{ facility.postcode }}{% endif %}
+                                    {% if facility.local_authority %}
+                                        <br><small class="text-muted"><strong>Authority:</strong> {{ facility.local_authority }}</small>
+                                    {% endif %}
+                                    {% if facility.region %}
+                                        <br><small class="text-info"><strong>Region:</strong> {{ facility.region }}</small>
+                                    {% endif %}
+                                    {% if facility.location_uprn %}
+                                        <br><small class="text-muted">UPRN: {{ facility.location_uprn }}</small>
                                     {% endif %}
                                 </td>
-                                <td>{{ facility.region or '' }}</td>
-                                <td>{{ facility.service_types or '' }}</td>
+                                <td>
+                                    {% if facility.care_home_beds %}
+                                        <strong>{{ facility.care_home_beds }} beds</strong>
+                                        {% if facility.care_home_size_band %}
+                                            <br><small class="text-muted">{{ facility.care_home_size_band }}</small>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="text-muted">Community Service</span>
+                                    {% endif %}
+                                    {% if facility.location_length_service_band %}
+                                        <br><small class="text-info">{{ facility.location_length_service_band }}</small>
+                                    {% endif %}
+                                    {% if facility.location_start_date %}
+                                        <br><small class="text-muted">Started: {{ facility.location_start_date[:10] }}</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if facility.service_types %}
+                                        <strong>Types:</strong><br>{{ facility.service_types }}<br>
+                                    {% endif %}
+                                    {% if facility.specialisms_services %}
+                                        <strong>Specialisms:</strong><br><small>{{ facility.specialisms_services }}</small><br>
+                                    {% endif %}
+                                    {% if facility.service_users_supported %}
+                                        <strong>Users:</strong><br><small class="text-info">{{ facility.service_users_supported }}</small>
+                                    {% endif %}
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>

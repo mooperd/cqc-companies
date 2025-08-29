@@ -26,12 +26,8 @@ spec:
           - configMapRef:
               name: application-environment-variables
           env:
-            - name: VIEWER_DOMAIN
-              value: $VIEWER_DOMAIN
             - name: DATABASE_URL
-              value: "postgresql://darwinist:darwinist@postgres-service.default:5432/darwinist"
-            - name: PRE_SHARED_API_KEY
-              value: "69937dff-504e-400b-b10a-f1995144b677"
+              value: "postgresql://darwinist:darwinist@postgres.cqc:5432/darwinist"
           ports:
           - name: web
             containerPort: 5000

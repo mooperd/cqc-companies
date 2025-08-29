@@ -79,7 +79,7 @@ def create_facility(row, provider_id):
         county=row.get('County', '').strip(),
         postcode=row.get('Postcode', '').strip(),
         phone_number=row.get('Phone number', '').strip(),
-        cqc_location_id=row.get('CQC Location ID', '').strip(),
+        cqc_location_id=row.get('CQC Location ID (for office use only)', '').strip(),
         website=row.get('Website', '').strip(),
         local_authority=row.get('Local authority', '').strip(),
         region=row.get('Region', '').strip(),

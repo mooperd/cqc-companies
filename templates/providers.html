@@ -50,37 +50,140 @@
             </div>
             <div class="card-body">
                 {% for provider in providers %}
-                <div class="card mb-3">
-                    <div class="card-header">
-                        <h6><strong>{{ provider.name }}</strong> ({{ provider.facilities|length }} facilities)</h6>
-                        {% if provider.website %}
-                            <small><a href="{{ provider.website }}" target="_blank">{{ provider.website }}</a></small>
-                        {% endif %}
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h5><strong>{{ provider.name }}</strong></h5>
+                                {% if provider.cqc_provider_id %}
+                                    <small>CQC Provider ID: {{ provider.cqc_provider_id }}</small>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-4 text-end">
+                                <span class="badge bg-light text-dark">{{ provider.facilities|length }} facilities</span>
+                                {% if provider.website %}
+                                    <br><a href="{{ provider.website }}" target="_blank" class="text-white"><small>{{ provider.website }}</small></a>
+                                {% endif %}
+                            </div>
+                        </div>
                     </div>
                     <div class="card-body">
+                        <!-- Provider Details -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <h6>Provider Contact Information</h6>
+                                {% if provider.email_address or provider.phone_number %}
+                                    {% if provider.email_address %}<p><strong>Email:</strong> {{ provider.email_address }}</p>{% endif %}
+                                    {% if provider.phone_number %}<p><strong>Phone:</strong> {{ provider.phone_number }}</p>{% endif %}
+                                {% else %}
+                                    <p class="text-muted">No contact information available</p>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Provider Address</h6>
+                                {% if provider.address_1 or provider.town_city %}
+                                    <p>
+                                        {{ provider.address_1 or '' }}{% if provider.address_2 %}, {{ provider.address_2 }}{% endif %}<br>
+                                        {{ provider.town_city or '' }}{% if provider.county %}, {{ provider.county }}{% endif %}<br>
+                                        {{ provider.postcode or '' }}
+                                    </p>
+                                {% else %}
+                                    <p class="text-muted">No address information available</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <!-- Facilities Table -->
+                        <h6>Facilities ({{ provider.facilities|length }})</h6>
                         <div class="table-responsive">
-                            <table class="table table-sm">
-                                <thead>
+                            <table class="table table-sm table-striped">
+                                <thead class="table-light">
                                     <tr>
-                                        <th>Facility Name</th>
-                                        <th>Address</th>
-                                        <th>Phone</th>
-                                        <th>Region</th>
-                                        <th>Service Types</th>
+                                        <th>Facility Details</th>
+                                        <th>Rating</th>
+                                        <th>Contact & Location</th>
+                                        <th>Capacity</th>
+                                        <th>Services</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {% for facility in provider.facilities %}
                                     <tr>
-                                        <td>{{ facility.name or '' }}</td>
                                         <td>
+                                            <strong>{{ facility.name or 'Unnamed Facility' }}</strong>
+                                            {% if facility.also_known_as %}
+                                                <br><small class="text-muted"><em>{{ facility.also_known_as }}</em></small>
+                                            {% endif %}
+                                            {% if facility.cqc_location_id %}
+                                                <br><small class="text-muted">CQC ID: {{ facility.cqc_location_id }}</small>
+                                            {% endif %}
+                                            {% if facility.registered_manager %}
+                                                <br><small><strong>Manager:</strong> {{ facility.registered_manager }}</small>
+                                            {% endif %}
+                                            {% if facility.dormant == 'Y' %}
+                                                <br><span class="badge bg-warning">Dormant</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if facility.latest_overall_rating %}
+                                                {% set rating = facility.latest_overall_rating %}
+                                                {% if rating == 'Outstanding' %}
+                                                    <span class="badge bg-success">{{ rating }}</span>
+                                                {% elif rating == 'Good' %}
+                                                    <span class="badge bg-primary">{{ rating }}</span>
+                                                {% elif rating == 'Requires improvement' %}
+                                                    <span class="badge bg-warning">{{ rating }}</span>
+                                                {% elif rating == 'Inadequate' %}
+                                                    <span class="badge bg-danger">{{ rating }}</span>
+                                                {% else %}
+                                                    <span class="badge bg-secondary">{{ rating }}</span>
+                                                {% endif %}
+                                            {% endif %}
+                                            {% if facility.publication_date %}
+                                                <br><small class="text-muted">{{ facility.publication_date[:10] }}</small>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if facility.phone_number or facility.location_telephone %}
+                                                <strong>Phone:</strong> {{ facility.phone_number or facility.location_telephone }}<br>
+                                            {% endif %}
                                             {{ facility.address_1 or '' }}{% if facility.address_2 %}, {{ facility.address_2 }}{% endif %}
                                             {% if facility.town_city %}<br>{{ facility.town_city }}{% endif %}
                                             {% if facility.postcode %} {{ facility.postcode }}{% endif %}
+                                            {% if facility.local_authority %}
+                                                <br><small class="text-muted">{{ facility.local_authority }}</small>
+                                            {% endif %}
+                                            {% if facility.region %}
+                                                <br><small class="text-info">{{ facility.region }}</small>
+                                            {% endif %}
+                                            {% if facility.website or facility.location_web_address %}
+                                                <br><a href="{{ facility.website or facility.location_web_address }}" target="_blank" class="btn btn-sm btn-outline-primary">Website</a>
+                                            {% endif %}
                                         </td>
-                                        <td>{{ facility.phone_number or '' }}</td>
-                                        <td>{{ facility.region or '' }}</td>
-                                        <td>{{ facility.service_types or '' }}</td>
+                                        <td>
+                                            {% if facility.care_home_beds %}
+                                                <strong>{{ facility.care_home_beds }} beds</strong>
+                                                {% if facility.care_home_size_band %}
+                                                    <br><small>{{ facility.care_home_size_band }}</small>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="text-muted">Community Service</span>
+                                            {% endif %}
+                                            {% if facility.location_length_service_band %}
+                                                <br><small class="text-info">{{ facility.location_length_service_band }}</small>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if facility.service_types %}
+                                                <strong>{{ facility.service_types }}</strong><br>
+                                            {% endif %}
+                                            {% if facility.specialisms_services %}
+                                                <small>{{ facility.specialisms_services }}</small><br>
+                                            {% endif %}
+                                            {% if facility.service_users_supported %}
+                                                <small class="text-info">{{ facility.service_users_supported }}</small>
+                                            {% endif %}
+                                        </td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>

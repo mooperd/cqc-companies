@@ -1,10 +1,7 @@
 import os
 import csv
 from flask import Flask, render_template, request, redirect, url_for, flash
-from dotenv import load_dotenv
 from model import db, Provider, Facility, Contact
-
-load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
@@ -139,6 +136,8 @@ def providers():
                          page=page,
                          total_pages=pagination.pages,
                          search_term=search_term)
+
+
 
 def create_tables():
     with app.app_context():
