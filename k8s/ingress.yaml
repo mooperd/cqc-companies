@@ -11,7 +11,7 @@ metadata:
 spec:
   tls:
     - hosts:
-        - $HOSTNAME
+        - cqc.darwinist.io
       secretName: $CERT_NAME
   rules:
     - host: $HOSTNAME
@@ -21,7 +21,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: $SERVICE_NAME
+                name: cqc.darwinist.io
                 port:
                   number: 80
 
