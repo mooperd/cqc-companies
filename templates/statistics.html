@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple CRM - Statistics</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .stat-card {
+            transition: transform 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+        .chart-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        .chart-img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+        }
+        .regional-table {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid mt-4">
+        <h1>Simple CRM - Statistics Dashboard</h1>
+        
+        <ul class="nav nav-tabs mb-4">
+            <li class="nav-item">
+                <a class="nav-link" href="/">Facilities</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/providers">Providers</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link active" href="/statistics">Statistics</a>
+            </li>
+        </ul>
+
+        <!-- Key Statistics Cards -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card stat-card bg-primary text-white">
+                    <div class="card-body text-center">
+                        <i class="fas fa-building stat-icon"></i>
+                        <h3>{{ stats.total_providers }}</h3>
+                        <p class="mb-0">Total Providers</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-success text-white">
+                    <div class="card-body text-center">
+                        <i class="fas fa-hospital stat-icon"></i>
+                        <h3>{{ stats.total_facilities }}</h3>
+                        <p class="mb-0">Total Facilities</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-info text-white">
+                    <div class="card-body text-center">
+                        <i class="fas fa-bed stat-icon"></i>
+                        <h3>{{ stats.total_beds }}</h3>
+                        <p class="mb-0">Total Care Home Beds</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-warning text-white">
+                    <div class="card-body text-center">
+                        <i class="fas fa-chart-line stat-icon"></i>
+                        <h3>{{ stats.avg_beds_per_home }}</h3>
+                        <p class="mb-0">Avg Beds per Care Home</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Secondary Statistics -->
+        <div class="row mb-4">
+            <div class="col-md-2">
+                <div class="card stat-card bg-light">
+                    <div class="card-body text-center">
+                        <i class="fas fa-check-circle text-success stat-icon"></i>
+                        <h4>{{ stats.active_facilities }}</h4>
+                        <p class="mb-0">Active Facilities</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card stat-card bg-light">
+                    <div class="card-body text-center">
+                        <i class="fas fa-pause-circle text-warning stat-icon"></i>
+                        <h4>{{ stats.dormant_facilities }}</h4>
+                        <p class="mb-0">Dormant Facilities</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="card stat-card bg-light">
+                    <div class="card-body text-center">
+                        <i class="fas fa-home text-primary stat-icon"></i>
+                        <h4>{{ stats.total_care_homes }}</h4>
+                        <p class="mb-0">Care Homes</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-light">
+                    <div class="card-body text-center">
+                        <i class="fas fa-star text-success stat-icon"></i>
+                        <h4>{{ stats.rated_facilities }}</h4>
+                        <p class="mb-0">Rated Facilities</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-light">
+                    <div class="card-body text-center">
+                        <i class="fas fa-question-circle text-muted stat-icon"></i>
+                        <h4>{{ stats.unrated_facilities }}</h4>
+                        <p class="mb-0">Unrated Facilities</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="row">
+            <!-- Rating Distribution -->
+            <div class="col-md-6 mb-4">
+                <div class="chart-container">
+                    <h4><i class="fas fa-star text-warning"></i> CQC Rating Distribution</h4>
+                    {% if charts.rating_pie %}
+                        <img src="data:image/png;base64,{{ charts.rating_pie }}" class="chart-img" alt="Rating Distribution">
+                    {% else %}
+                        <p class="text-muted">No rating data available</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Provider Size Distribution -->
+            <div class="col-md-6 mb-4">
+                <div class="chart-container">
+                    <h4><i class="fas fa-building text-primary"></i> Provider Size Distribution</h4>
+                    {% if charts.provider_sizes %}
+                        <img src="data:image/png;base64,{{ charts.provider_sizes }}" class="chart-img" alt="Provider Sizes">
+                    {% else %}
+                        <p class="text-muted">No provider data available</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Regional Statistics -->
+        <div class="row">
+            <div class="col-md-8 mb-4">
+                <div class="chart-container">
+                    <h4><i class="fas fa-map-marker-alt text-danger"></i> Facilities by Region</h4>
+                    {% if charts.regional_bar %}
+                        <img src="data:image/png;base64,{{ charts.regional_bar }}" class="chart-img" alt="Regional Distribution">
+                    {% else %}
+                        <p class="text-muted">No regional data available</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-4 mb-4">
+                <div class="chart-container">
+                    <h4><i class="fas fa-list text-info"></i> Regional Summary</h4>
+                    <div class="regional-table">
+                        <table class="table table-sm">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Region</th>
+                                    <th>Facilities</th>
+                                    <th>Beds</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for region in stats.regional_stats[:15] %}
+                                <tr>
+                                    <td><small>{{ region.region }}</small></td>
+                                    <td><span class="badge bg-primary">{{ region.facilities }}</span></td>
+                                    <td><span class="badge bg-info">{{ region.beds }}</span></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Care Home Analysis -->
+        <div class="row">
+            <div class="col-md-12 mb-4">
+                <div class="chart-container">
+                    <h4><i class="fas fa-bed text-success"></i> Care Home Size Distribution</h4>
+                    {% if charts.bed_distribution %}
+                        <img src="data:image/png;base64,{{ charts.bed_distribution }}" class="chart-img" alt="Bed Distribution">
+                    {% else %}
+                        <p class="text-muted">No care home bed data available</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Service Types -->
+        <div class="row">
+            <div class="col-md-12 mb-4">
+                <div class="chart-container">
+                    <h4><i class="fas fa-cogs text-secondary"></i> Top Service Types</h4>
+                    {% if charts.service_types %}
+                        <img src="data:image/png;base64,{{ charts.service_types }}" class="chart-img" alt="Service Types">
+                    {% else %}
+                        <p class="text-muted">No service type data available</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Regional Comparison -->
+        <div class="row">
+            <div class="col-md-12 mb-4">
+                <div class="chart-container">
+                    <h4><i class="fas fa-balance-scale text-purple"></i> Facilities vs Beds by Region</h4>
+                    {% if charts.regional_comparison %}
+                        <img src="data:image/png;base64,{{ charts.regional_comparison }}" class="chart-img" alt="Regional Comparison">
+                    {% else %}
+                        <p class="text-muted">No regional comparison data available</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Rating Breakdown Table -->
+        {% if stats.rating_breakdown %}
+        <div class="row">
+            <div class="col-md-6 mb-4">
+                <div class="chart-container">
+                    <h4><i class="fas fa-table text-dark"></i> Rating Breakdown</h4>
+                    <table class="table table-striped">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Rating</th>
+                                <th>Count</th>
+                                <th>Percentage</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for rating, count in stats.rating_breakdown.items() %}
+                            <tr>
+                                <td>
+                                    {% if rating == 'Outstanding' %}
+                                        <span class="badge bg-success">{{ rating }}</span>
+                                    {% elif rating == 'Good' %}
+                                        <span class="badge bg-primary">{{ rating }}</span>
+                                    {% elif rating == 'Requires improvement' %}
+                                        <span class="badge bg-warning">{{ rating }}</span>
+                                    {% elif rating == 'Inadequate' %}
+                                        <span class="badge bg-danger">{{ rating }}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ rating }}</span>
+                                    {% endif %}
+                                </td>
+                                <td><strong>{{ count }}</strong></td>
+                                <td>{{ "%.1f"|format((count / stats.rated_facilities * 100)) }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="col-md-6 mb-4">
+                <div class="chart-container">
+                    <h4><i class="fas fa-trophy text-warning"></i> Top Service Types</h4>
+                    <table class="table table-striped">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Service Type</th>
+                                <th>Facilities</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for service_type, count in stats.top_service_types[:10] %}
+                            <tr>
+                                <td><small>{{ service_type }}</small></td>
+                                <td><span class="badge bg-info">{{ count }}</span></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Footer -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Statistics generated on:</strong> Real-time
+                    <br>
+                    <small>Data includes all providers and facilities in the system. Charts are server-side rendered for optimal performance.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
