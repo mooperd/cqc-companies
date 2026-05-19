@@ -14,6 +14,19 @@ permissions:
   contents: read
 
 jobs:
+  actionlint:
+    name: Workflow YAML lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download actionlint
+        id: actionlint
+        run: bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+
+      - name: Lint .github/workflows/
+        run: ${{ steps.actionlint.outputs.executable }} -color
+
   smoke:
     name: Python import smoke
     runs-on: ubuntu-latest
