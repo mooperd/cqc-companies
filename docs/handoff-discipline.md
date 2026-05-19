@@ -4,7 +4,7 @@ Handoffs in this project are **ephemeral working memory**, not historical record
 
 This document defines what a handoff is, what it isn't, when to write one, and exactly what to do when one is resolved.
 
-For the broader four-document discipline (Architecture Decision Records, plans, spikes, handoffs), see <https://robtaylor.github.io/claude-project-discipline/>.
+For the broader four-document discipline (Architecture Decision Records, plans, spikes, handoffs), see the upstream source: [**robtaylor/claude-project-discipline**](https://github.com/robtaylor/claude-project-discipline) (rendered: <https://robtaylor.github.io/claude-project-discipline/>).
 
 ## Why this discipline exists
 

@@ -2,7 +2,7 @@
 
 Numbered records of non-obvious design choices, kept forever, amended in place when scope expands, never deleted.
 
-For the full convention, see [Claude Project Discipline — ADRs](https://robtaylor.github.io/claude-project-discipline/adr.html).
+For the full convention, see the upstream source — [**robtaylor/claude-project-discipline**](https://github.com/robtaylor/claude-project-discipline) — and its rendered ADR chapter at [robtaylor.github.io/claude-project-discipline/adr.html](https://robtaylor.github.io/claude-project-discipline/adr.html).
 
 These first ten ADRs were reverse-engineered from the codebase as of `2fe0977` (2025-09-01). They describe choices that the code makes self-evident but whose *why* would otherwise be lost. New ADRs from here are written when the decision is made, not after.
 
