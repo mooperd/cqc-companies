@@ -69,6 +69,9 @@ jobs:
           BASE_REF: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          : "${BASE_REF:?BASE_REF unset (workflow misconfigured)}"
+          : "${GH_TOKEN:?GH_TOKEN unset (workflow misconfigured)}"
+
           DATE=$(date -u +%Y-%m-%d)
           BRANCH="data/refresh-$DATE"
           TITLE="data: refresh CSVs from CQC monthly bulk export ($DATE)"
@@ -76,22 +79,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # If today's branch already exists, force-push fresh content;
-          # otherwise create it. Keeps at most one refresh branch per day.
-          if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null; then
-            git fetch origin "$BRANCH":"$BRANCH"
-            git checkout "$BRANCH"
-            git checkout "origin/$BASE_REF" -- :^output.csv :^Locations.csv :^data/ 2>/dev/null || true
-            # Re-apply the regenerated files (still in the working tree
-            # from `Run refresh` — they survive checkout above thanks to
-            # the path exclusions).
-          else
-            git checkout -b "$BRANCH"
-          fi
+          # Stash the regenerated files (including the newly-created state
+          # file if this is the first run) before resetting the branch.
+          # --include-untracked picks up data/cqc-refresh-state.json on
+          # first run when the data/ dir doesn't exist on the base ref.
+          git stash push --include-untracked -m "cqc-refresh" -- \
+            output.csv Locations.csv data/
 
-          # Compose a generated PR body.
-          OUT_ROWS=$(($(wc -l < output.csv) - 1))
-          LOC_ROWS=$(($(wc -l < Locations.csv) - 1))
+          # Always create the branch fresh from the trigger's base ref.
+          # If today's branch already exists upstream, the later
+          # --force-with-lease push replaces its content.
+          git fetch origin "$BASE_REF"
+          git checkout -B "$BRANCH" "origin/$BASE_REF"
+          git stash pop
+
+          # Compose the PR body.
           {
             echo "Automated refresh from CQC's monthly bulk downloads."
             echo
@@ -99,28 +101,22 @@ jobs:
             echo
             python cqc_refresh.py discover | sed 's/^/    /'
             echo
-            echo "Row counts in the regenerated files:"
-            echo
-            echo "- \`output.csv\`: $OUT_ROWS rows"
-            echo "- \`Locations.csv\`: $LOC_ROWS rows"
-            echo
-            echo "Shortstat:"
+            echo "Diff against \`$BASE_REF\`:"
             echo
             echo '```'
-            git diff --shortstat HEAD~ -- output.csv Locations.csv data/ || true
+            git diff --shortstat "origin/$BASE_REF" -- output.csv Locations.csv data/ || true
             echo '```'
             echo
             echo "Review the diff carefully — if CQC has changed column shape, the"
             echo "mapper in \`cqc_refresh.py\` needs updating before this is merged."
           } > /tmp/pr-body.md
 
-          git add output.csv Locations.csv data/
+          git add output.csv Locations.csv data/cqc-refresh-state.json
           git commit -m "$TITLE"
           git push --force-with-lease -u origin "$BRANCH"
 
-          # Open the PR if one isn't already open for this branch.
           if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
-            echo "PR already open for $BRANCH — updated head."
+            echo "PR already open for $BRANCH — updating body."
             gh pr edit "$BRANCH" --body-file /tmp/pr-body.md
           else
             gh pr create --base "$BASE_REF" --head "$BRANCH" \
