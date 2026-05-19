@@ -60,7 +60,11 @@ class Facility(db.Model):
     
     provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'), nullable=False, index=True)
 
-# Keep Contact for backward compatibility during migration
+# Placeholder for future CRM-style interaction tracking (recording
+# conversations, outreach, notes against providers/facilities). The
+# current field shape mirrors the old flat Provider+Location row and
+# is NOT yet what this model wants to be — see docs/adr/0001-…md
+# Amendment (2026-05-19) and docs/plans/initial-debt-and-questions.md WS6.
 class Contact(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255))
