@@ -69,7 +69,7 @@ jobs:
           print(f'OK — {len(routes)} routes registered: {routes}')
 
           # And that cqc_refresh's CLI is reachable.
-          parser = cqc_refresh._build_parser()
+          parser = cqc_refresh.build_parser()
           assert parser.parse_args(['discover']).cmd == 'discover'
           print('cqc_refresh CLI parser OK')
           PY
