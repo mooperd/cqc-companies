@@ -1,6 +1,21 @@
 # ADR 0001 — Two-entity domain model (Provider → Facility)
 
-**Status:** Accepted (2025-08-28).
+**Status:** Accepted (2025-08-28). Amended 2026-05-19 — see Amendment below; the `Contact` model is a CRM placeholder, not a legacy artefact.
+
+## Amendment (2026-05-19)
+
+Original §Decision-3 and §Consequences described the `Contact` class in `model.py:63-83` as a "legacy flat model retained for backward compatibility during migration" — and §Walk-back proposed deleting it. That framing was wrong.
+
+`Contact` is a deliberate **placeholder for future CRM-style interaction tracking** — i.e. recording conversations, outreach, and notes against providers / facilities. It is intentionally retained.
+
+Two notes on the present state:
+
+1. The current field shape of `Contact` (mirror of the old flat Provider+Location row) does **not** yet reflect this intent. A proper CRM `Contact` would carry interaction-specific fields (`contacted_at`, `channel`, `notes`, `outcome`, FK to `Provider` and/or `Facility`, FK to a user). The fields will be reshaped when the CRM feature is scoped.
+2. The misleading comment in `model.py:63` (`# Keep Contact for backward compatibility during migration`) should be updated when the feature lands or sooner.
+
+The original §Walk-back item "if `Contact` is confirmed unreferenced, delete the class" no longer applies — `Contact` is reserved, not unused-pending-cleanup.
+
+The original Context, Decision, and Walk-back sections below are retained for historical record. Where they conflict with this amendment, this amendment wins.
 
 **TL;DR.** In the context of representing CQC's regulated care market in the database, facing a published dataset where each provider organisation owns one or more registered locations, we chose a normalised two-entity model (`Provider` 1—N `Facility`) over a flat single-table model, to achieve cheap "provider-level" aggregates (count of facilities, total beds, NHS-vs-private filtering) at the cost of a join on every facility query.
 
