@@ -1,82 +1,113 @@
-# Spike — Can the CQC syndication API replace the bulk CSV exports as our data source?
+# Spike — Which CQC data source should we automate ingest against?
 
-**Status:** Open. Time-box: ≤ 1 day of live-probe work; abort and write up a "hybrid" outcome if Q2 (rate limit) blows past the GH-Actions 6-hour ceiling for a full backfill.
-
-<!--
-At resolution, update Status to one of:
-  Resolved (YYYY-MM-DD) — YES; <one-line outcome>
-  Resolved (YYYY-MM-DD) — NO; <one-line outcome>
-  Resolved (YYYY-MM-DD) — PARTIAL; <one-line outcome>
-And fill in the Outcome section below.
--->
+**Status:** Resolved (2026-05-19) — **bulk monthly downloads.** Three predictable URLs at `cqc.org.uk/sites/default/files/<YYYY>-<MM>/...` cover everything the schema needs, no API key required. The Azure-fronted syndication API stays in the contingency drawer.
 
 ## Question
 
-**Does the CQC public syndication API (`https://api.service.cqc.org.uk/public/v1/`) expose enough of the data we currently store to replace the two bulk CSV exports — `output.csv` (providers) and `Locations.csv` (locations) — as our primary ingest source?**
+**What's the right data source to automate ingest against — the CQC public syndication API or the bulk monthly downloads CQC publishes — given we currently maintain two CSVs (`output.csv`, `Locations.csv`) by hand?**
 
-If yes, this spike unlocks an ADR + plan to automate ingest via API (cron / GitHub Actions), eliminating the manual CSV refresh tracked under [ADR 0007](../adr/0007-csvs-checked-into-repo.md).
+Answer: **bulk monthly downloads**, with the API kept available as a backup path if CQC ever stops publishing the bulk files.
 
-## Why this is in question
+## Why this was in question
 
-The repo's current source-of-truth is two large CSVs committed to the repo ([ADR 0007](../adr/0007-csvs-checked-into-repo.md)) and refreshed by hand. The walk-back option there names this exact pivot: *"If CSV refreshes become frequent, move them to object storage; have the importer fetch by URL with a checksum check."* This spike answers the precondition for that walk-back — **before** we touch infrastructure, can we even get the data over the wire?
+The repo's current source-of-truth is two large CSVs committed to the repo ([ADR 0007](../adr/0007-csvs-checked-into-repo.md)) and refreshed by hand. The walk-back option there names this exact pivot: *"If CSV refreshes become frequent, move them to object storage; have the importer fetch by URL with a checksum check."*
 
-The CQC syndication API is the obvious source. It's documented, free, and CQC's own preferred channel for programmatic consumers. But: it requires registration, it's rate-limited, the list endpoints are sparse (IDs only — full sync is N+1 detail calls), and at least *some* fields the current schema stores are CSV-only enrichments rather than API-surfaced.
+Three plausible automation sources existed:
 
-## Approach
+1. **The Azure-fronted syndication API** (`api.service.cqc.org.uk/public/v1/`) — programmatic, free key, rate-limited.
+2. **The published monthly bulk downloads** — a CSV and two `.ods` files at predictable URLs under `cqc.org.uk/sites/default/files/<YYYY>-<MM>/`.
+3. **Scraping** the `/search/all` UI page (was the initial framing) — fragile, ruled out almost immediately.
 
-### Q1. Field coverage — does the API expose the columns we depend on?
+The middle option turned out to be the easiest *and* the most complete.
 
-**Done — desk-research via oracle agent on the CQC developer portal + openans-mirrored JSON schemas + MuleSoft examples + Birdie's open-source Singer tap + the `cqcr` R package.** Findings in §Findings below.
+## Findings
 
-### Q2. Rate limit and quota — does a full backfill (≈125k detail calls) fit in a GitHub Actions job?
+(Terse evidence, ordered chronologically. The oracle agent's full field-by-field comparison against the API schemas is in this PR's review thread, kept for the API contingency path.)
 
-**Not yet started.** Requires a registered API key. Concrete sub-steps:
+### 2026-05-19 — API path investigated first
 
-- Register at <https://api-portal.service.cqc.org.uk/signup>.
-- Call `GET /locations?perPage=1000&page=1` once; capture `Retry-After`, `RateLimit-*` response headers, confirm `perPage=1000` is honoured.
-- Make 60 rapid-fire calls in a one-minute window; observe whether throttling kicks in.
-- Read the developer-portal "Products" page (gated behind login) for the documented per-minute limit on the Syndication product.
+- API exists at `api.service.cqc.org.uk/public/v1/`; endpoints `/providers`, `/locations`, `/changes/{provider,location}`. Auth via `Ocp-Apim-Subscription-Key` header (Azure APIM).
+- List endpoints are sparse (IDs + name + postcode only) — full sync is N+1 detail calls, ≈125k requests for an initial backfill against the current ~88k locations + ~33k providers.
+- Documented rate limit (legacy endpoint) was 2000/min with a `partnerCode`; the new APIM-fronted endpoint's exact limit is gated behind the portal login.
+- Field coverage from openans-mirrored schemas: ~70% direct (renamed), ~20% nested (5 sub-ratings under `currentRatings.overall.keyQuestionRatings[]`, `service_types` under `gacServiceTypes[].name`), ~10% absent or derived.
+- `service_users_supported` is *not* in the API. `email_address` is explicitly excluded by CQC.
+- Local code probe: `service_users_supported` is display-only in templates; `email_address` is set to `''` by every importer and the source CSVs have no email column. Both gaps collapse to non-blockers under actual usage.
 
-### Q3. Live field-diff — turn the oracle's "UNKNOWN" verdicts into definitive YES/NO
+### 2026-05-19 — Bulk monthly downloads found
 
-**Not yet started.** Requires a registered API key. Pick 10 known locations from the current `Locations.csv`, GET each via `/locations/{id}`, diff the JSON against our SQLAlchemy field list. Specifically nail down:
+CQC publishes three monthly files at predictable URLs under `https://www.cqc.org.uk/sites/default/files/<YYYY>-<MM>/`:
 
-- `uprn` — confirmed present per CQC's own examples on the new endpoint, but absent from the openans-mirrored legacy schema.
-- `dormant` — likely derivable from `registrationStatus`, but not a direct field.
-- `inspectionDirectorate` — believed to map to our `primary_inspection_category`, exact equivalence unconfirmed.
-- `email_address` — CQC's data page says emails are not in the dataset. **Confirmed in our context as a non-blocker** — see §Pre-spike findings.
+| File | URL pattern | Size | Cadence | Equivalent to |
+|---|---|---|---|---|
+| `<DD>_<Month>_<YYYY>_CQC_directory.csv` | e.g. `2026-05/13_May_2026_CQC_directory.csv` | ~19 MB CSV | ~monthly | current `output.csv` (modernised, simpler) |
+| `<DD>_<Month>_<YYYY>_HSCA_Active_Locations.ods` | e.g. `2026-05/05_May_2026_HSCA_Active_Locations.ods` | ~24 MB ODS | ~monthly | current `Locations.csv` plus a lot more |
+| `<DD>_<Month>_<YYYY>_Latest_ratings.ods` | e.g. `2026-05/05_May_2026_Latest_ratings.ods` | ~26 MB ODS | ~monthly | the 5 sub-ratings (Safe/Effective/Caring/Responsive/Well-led) in long-format |
+
+The CSV directory file has 15 columns (renamed and address-collapsed vs. our current `output.csv`):
+
+| New CSV column | Maps to our current schema |
+|---|---|
+| `Name` | `Facility.name` |
+| `Also known as` | `Facility.also_known_as` |
+| `Address` (single, quoted multi-line string) | requires split → `address_1`, `address_2`, `town_city`, `county` |
+| `Postcode` | `Facility.postcode` |
+| `Phone number` | `Facility.phone_number` |
+| `Service's website (if available)` | `Facility.website` |
+| `Service types` | `Facility.service_types` |
+| `Date of latest check` | `Facility.report_publication_date` |
+| `Specialisms/services` | `Facility.specialisms_services` |
+| `Provider name` | `Provider.name` |
+| `Local authority` | `Facility.local_authority` |
+| `Region` | `Facility.region` |
+| `Location URL` | `Facility.url` |
+| `CQC Location ID (for office use only)` | `Facility.cqc_location_id` |
+| `CQC Provider ID (for office use only)` | `Provider.cqc_provider_id` |
+
+HSCA Active Locations (.ods, 122 cols across `HSCA_Active_Locations` + `Dual_Registration_Locations` sheets) covers everything in our `Locations.csv` and more:
+
+- All location identity, address, manager, beds, dormant flag — direct columns.
+- Latest **overall** rating + publication date (cols 14-15). Sub-ratings (Safe / Effective / etc.) are **not** in this file — they live in `Latest_ratings.ods`.
+- Service types as **one-hot Y/N columns 76-108** (rather than the current comma-separated string).
+- Service user bands (the `service_users_supported` equivalent) as **one-hot Y/N columns 109-120**.
+- Regulated activities as one-hot Y/N columns 62-75.
+- Brand info, Companies House number, lat/lon, NHS region, CCG, parliamentary constituency — all present.
+
+Latest ratings (.ods, 28 cols on `Locations` sheet, 21 on `Providers` sheet): one row per (location/provider, service-population-group, **domain**) where `Domain` ∈ {Safe, Effective, Caring, Responsive, Well-led}. To populate our current scalar sub-rating columns, we pivot wide on `Domain`.
+
+### Net field coverage
+
+Combining the three bulk files, **every column the current schema needs is recoverable.** The two original "gap" fields the API analysis flagged are both present in HSCA:
+
+- `service_users_supported`: HSCA cols 109-120 → flatten Y/N to comma-separated string (matching the current shape).
+- `email_address`: still absent everywhere (CQC doesn't publish emails). Continues to be set to `''` — no regression.
 
 ## Decision matrix
 
-| Outcome | Means | Action |
-|---|---|---|
-| API covers everything we use, rate limit accommodates a full backfill in ≤ 6h | **Switch fully** | New ADR ("CQC API as primary ingest source") supersedes [ADR 0007](../adr/0007-csvs-checked-into-repo.md). Plan workstreams: API client, persistence of `lastSync` timestamps, incremental via `/changes`, GH Actions cron, PR-against-CSV workflow if we still want the CSVs as backup. |
-| API covers everything we use, but rate limit means full backfill > 6h | **Switch with cron split** | Same as above, but the backfill happens in chunks (resumable via persisted `page` cursor) or runs locally / on a long-running runner. Incremental sync stays in GH Actions. |
-| API misses a *display-only* field (e.g. `service_users_supported`) | **Switch with hybrid** | API for the core ingest; supplementary CSV (the "Care directory with filters" download) for the gap column, refreshed on a longer cadence. Plan calls out the hybrid explicitly. |
-| API misses a *load-bearing* field used in filters/queries | **Don't switch; revisit** | Spike resolves NO. ADR 0007 stays accepted. We may revisit if/when CQC adds the field. |
-
-## Pre-spike findings
-
-(Filled in as the spike runs. Terse — these are evidence, not narrative. The oracle agent's full report is the primary source; this section captures only what's load-bearing for the decision.)
-
-- **2026-05-19 — Oracle desk research:** API has `/providers`, `/locations`, `/changes/{provider,location}` endpoints. Auth via `Ocp-Apim-Subscription-Key` header (Azure APIM). List endpoints are sparse (IDs + name + postcode only); detail requires N+1 calls. Documented rate limit on the legacy endpoint was 2000 req/min with a `partnerCode`; the new APIM-fronted endpoint's exact limit is *docs-silent* and gated behind the portal login. No documented daily quota.
-- **2026-05-19 — Field coverage from openans schemas:** ~70% of our columns are present (mostly under different names — `cqc_location_id` → `locationId`, `phone_number` → `mainPhoneNumber`, etc.). ~20% are nested (5 sub-ratings under `currentRatings.overall.keyQuestionRatings[]`, `service_types` under `gacServiceTypes[].name`, `specialisms_services` under `specialisms[].name`). ~10% are absent or derived:
-  - **Absent:** `email_address` (CQC explicitly excludes), `service_users_supported` (CSV-only).
-  - **Derivable:** `url` (build from `https://www.cqc.org.uk/location/{locationId}`), `care_home_size_band` (compute from `numberOfBeds`), `location_length_service_band` (compute from `registrationDate`), `dormant` (likely from `registrationStatus`).
-- **2026-05-19 — Local code probe:** `service_users_supported` is **display-only** in templates (`templates/index.html:193`, `templates/providers.html:285`) — no filter, no query. Acceptable temporary regression OR fill from the supplementary CSV. `email_address` is referenced in templates but **set to `''` by every importer** (`import_records.py:91`, `enrich_locations.py:68,100`) — net zero loss from the API gap.
-- **Implication so far:** Both originally-flagged "gap" fields collapse to non-blockers under our actual usage. The only remaining open question is **rate-limit feasibility for the full backfill** (Q2).
+| Outcome | Action |
+|---|---|
+| **Bulk URLs cover all needed columns** ← *what landed* | **Switch to bulk-download ingest.** New ADR ("Bulk monthly downloads as ingest source") amends [ADR 0007](../adr/0007-csvs-checked-into-repo.md) per its own walk-back clause. Importers updated to read the new column shape (CSV + ODS). API stays documented as contingency. |
+| Bulk URLs miss a load-bearing column | Switch with hybrid — bulk for the bulk, API or scraping for the gap. |
+| CQC stops publishing the bulk downloads | Fall back to the API path. Keys already provisioned in `.env` (`CQC_PRIMARY_KEY` / `CQC_SECONDARY_KEY`). |
 
 ## Outcome
 
-(To be filled in at resolution, after Q2 and Q3 run against a live key.)
+**Bulk monthly downloads chosen.** Three predictable URLs, no auth, no rate limit, more complete than the API. The next steps belong in a successor plan and ADR, not this spike:
+
+1. **ADR** amending [ADR 0007](../adr/0007-csvs-checked-into-repo.md): the walk-back triggers (frequent refresh, automation desire) are now active; the new ingest source is the bulk monthly downloads.
+2. **Plan** (`docs/plans/cqc-bulk-ingest.md`) scoping: URL discovery (scrape `cqc.org.uk/about-us/transparency/using-cqc-data` for the current month's links), download + checksum, ODS-to-DataFrame loader using a streaming parser (NOT the default odfpy + pandas path — see "Lesson learned" below), schema mapping for the three files, GH Actions cron, PR-against-CSV workflow.
+3. **API kept as contingency.** Keys present at `.env:CQC_PRIMARY_KEY` / `CQC_SECONDARY_KEY`. Auth flow documented at `docs/cqc_authentication_flow.odt` (committed alongside this spike resolution).
+
+### Lesson learned (worth preserving for the plan)
+
+Reading the 24-26 MB `.ods` files via `odfpy + pandas.read_excel(engine='odf')` consumed **>3 GB of RAM** during parsing and didn't complete within a minute. The fix: stream the embedded `content.xml` directly with `ElementTree.iterparse`, since `.ods` is just a ZIP archive containing OpenDocument XML. A 30-line streaming parser produces the same columns in < 1 second using a few MB of RAM. Reference implementation lived at `/tmp/probe-ods-headers.py` during this spike; the plan should commit a productionised version under the importer code.
 
 ## References
 
-- Oracle agent report — full field-by-field mapping and source links (in this PR's review thread; not committed to the repo because it's transient research, not load-bearing).
-- [ADR 0007 — CSVs checked into the repo](../adr/0007-csvs-checked-into-repo.md) — the walk-back this spike unlocks.
-- [ADR 0005 — Two-stage CSV ingest](../adr/0005-two-stage-csv-ingest.md) — the import pipeline this spike's outcome reshapes.
-- [Plan — Initial debt and questions](../plans/initial-debt-and-questions.md) — peer plan; this spike, if it resolves YES, becomes a successor plan rather than a workstream on that one.
-- [CQC developer portal](https://api-portal.service.cqc.org.uk/) — registration + product docs.
-- [CQC — Using CQC data](https://www.cqc.org.uk/about-us/transparency/using-cqc-data) — official statement on data scope (incl. "no email addresses").
-- [openans-mirrored JSON schemas](https://openans.github.io/cqc-syndication-api/) — the most complete public spec (legacy endpoint, but ≈95% accurate for the new one).
-- [Birdie tap-cqc-org-uk](https://github.com/birdiecare/tap-cqc-org-uk) — real-world Singer tap consumer; a reference for handling the N+1 pattern in practice.
+- [ADR 0007 — CSVs checked into the repo](../adr/0007-csvs-checked-into-repo.md) — the walk-back this spike's outcome activates.
+- [ADR 0005 — Two-stage CSV ingest](../adr/0005-two-stage-csv-ingest.md) — the import pipeline reshaped by the outcome.
+- [Plan — Initial debt and questions](../plans/initial-debt-and-questions.md) — peer plan; the bulk-ingest follow-up is a successor plan, not a workstream here.
+- `docs/cqc_authentication_flow.odt` — API auth flow, kept for the contingency path.
+- [CQC — Using CQC data](https://www.cqc.org.uk/about-us/transparency/using-cqc-data) — official index of the bulk files (also the page we'd scrape for URL discovery).
+- [CQC developer portal](https://api-portal.service.cqc.org.uk/) — API contingency path.
+- [openans-mirrored JSON schemas](https://openans.github.io/cqc-syndication-api/) — preserved for the API contingency path; the most complete public API spec.
+- [Birdie tap-cqc-org-uk](https://github.com/birdiecare/tap-cqc-org-uk) — real-world Singer tap consumer of the API, for the contingency reference.
