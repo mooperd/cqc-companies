@@ -126,20 +126,34 @@ If Path B, this should spawn an `auth` plan and a `0011-google-oauth.md` ADR bef
 
 ---
 
-### WS6 — Decide: drop the legacy `Contact` table or keep documenting it (S)
+### WS6 — Reshape the `Contact` placeholder for its actual purpose (M)
 
-**Status:** Open. Source: ADR 0001 §Consequences, §Walk-back; ADR 0002 §Consequences.
+**Status:** Open. Source: ADR 0001 Amendment (2026-05-19).
 
-`model.py:63-83` defines `Contact` "for backward compatibility during migration". `db.create_all()` will create the empty table on a fresh DB; no code path queries it. Dropping it requires either Alembic (see WS7) or an out-of-band `DROP TABLE`.
+Originally scoped as "delete the legacy `Contact` table". That was based on a misreading of the model — see the amendment on ADR 0001. **`Contact` is a deliberate placeholder for future CRM-style interaction tracking** (recording conversations, outreach, notes against providers / facilities), not a legacy artefact to remove.
+
+The current field shape is wrong for the intended purpose (it mirrors the old flat Provider+Location row). A proper CRM `Contact` would carry interaction-specific fields:
+
+- `contacted_at` (timestamp)
+- `channel` (email / phone / in-person / etc.)
+- `notes` (free text)
+- `outcome` (categorised)
+- FK to `Provider` and / or `Facility`
+- FK to the user who recorded the interaction (depends on WS5 — auth)
+
+This WS is now scoped to: **decide when to reshape `Contact` and what the minimum useful schema looks like**.
 
 **Deliverables:**
 
-- Confirm with `grep -r Contact .` that no live code references it (the route handlers import only `Provider`, `Facility`).
-- If confirmed: delete the class from `model.py`; document the `DROP TABLE contact;` step needed against the prod DB (or defer until WS7's Alembic introduction makes it a generated migration).
+- Update `model.py:63`'s misleading comment immediately (one-line fix): change `# Keep Contact for backward compatibility during migration` → `# Placeholder for future CRM-style interaction tracking (see ADR 0001 Amendment 2026-05-19).`
+- A `docs/plans/crm-contacts.md` plan when the CRM feature is scoped, covering: target schema, UI surface, how it interacts with auth (WS5), how it gets migrated in (WS7 / Alembic).
+- A `docs/adr/0011-crm-contact-model.md` when the schema decision is made.
 
 **Exit criteria:**
 
-- Either `Contact` is gone from `model.py`, or this WS is explicitly deferred to WS7's resolution.
+- The misleading comment in `model.py:63` is corrected.
+- The deliberate placeholder is documented so no future contributor (or Claude session) tries to delete it again.
+- A separate plan exists when the CRM work is actually picked up.
 
 ---
 
