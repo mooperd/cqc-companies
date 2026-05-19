@@ -95,7 +95,7 @@ Combining the three bulk files, **every column the current schema needs is recov
 
 1. **ADR** amending [ADR 0007](../adr/0007-csvs-checked-into-repo.md): the walk-back triggers (frequent refresh, automation desire) are now active; the new ingest source is the bulk monthly downloads.
 2. **Plan** (`docs/plans/cqc-bulk-ingest.md`) scoping: URL discovery (scrape `cqc.org.uk/about-us/transparency/using-cqc-data` for the current month's links), download + checksum, ODS-to-DataFrame loader using a streaming parser (NOT the default odfpy + pandas path — see "Lesson learned" below), schema mapping for the three files, GH Actions cron, PR-against-CSV workflow.
-3. **API kept as contingency.** Keys present at `.env:CQC_PRIMARY_KEY` / `CQC_SECONDARY_KEY`. Auth flow documented at `docs/cqc_authentication_flow.odt` (committed alongside this spike resolution).
+3. **API kept as contingency.** Keys present at `.env:CQC_PRIMARY_KEY` / `CQC_SECONDARY_KEY`. The auth flow is documented in CQC's developer portal at <https://api-portal.service.cqc.org.uk/> — we don't redistribute it locally because the source document we had wasn't clearly licensed.
 
 ### Lesson learned (worth preserving for the plan)
 
@@ -106,7 +106,6 @@ Reading the 24-26 MB `.ods` files via `odfpy + pandas.read_excel(engine='odf')` 
 - [ADR 0007 — CSVs checked into the repo](../adr/0007-csvs-checked-into-repo.md) — the walk-back this spike's outcome activates.
 - [ADR 0005 — Two-stage CSV ingest](../adr/0005-two-stage-csv-ingest.md) — the import pipeline reshaped by the outcome.
 - [Plan — Initial debt and questions](../plans/initial-debt-and-questions.md) — peer plan; the bulk-ingest follow-up is a successor plan, not a workstream here.
-- `docs/cqc_authentication_flow.odt` — API auth flow, kept for the contingency path.
 - [CQC — Using CQC data](https://www.cqc.org.uk/about-us/transparency/using-cqc-data) — official index of the bulk files (also the page we'd scrape for URL discovery).
 - [CQC developer portal](https://api-portal.service.cqc.org.uk/) — API contingency path.
 - [openans-mirrored JSON schemas](https://openans.github.io/cqc-syndication-api/) — preserved for the API contingency path; the most complete public API spec.
