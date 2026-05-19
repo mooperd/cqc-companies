@@ -53,12 +53,13 @@ jobs:
           DATABASE_URL: "sqlite:///:memory:"
         run: |
           python - <<'PY'
-          # If any of the four entry-point modules has a syntax error,
+          # If any of the entry-point modules has a syntax error,
           # a typo'd import, or a missing dependency, this fails.
           import app
           import model
           import import_records
           import enrich_locations
+          import cqc_refresh  # bulk-download pipeline; stdlib-only
 
           # Sanity-check the Flask app actually wired up.
           routes = sorted(r.rule for r in app.app.url_map.iter_rules())
@@ -66,4 +67,9 @@ jobs:
           missing = expected - set(routes)
           assert not missing, f'expected routes missing: {missing}'
           print(f'OK — {len(routes)} routes registered: {routes}')
+
+          # And that cqc_refresh's CLI is reachable.
+          parser = cqc_refresh._build_parser()
+          assert parser.parse_args(['discover']).cmd == 'discover'
+          print('cqc_refresh CLI parser OK')
           PY
