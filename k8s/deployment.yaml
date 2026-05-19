@@ -28,6 +28,11 @@ spec:
           env:
             - name: DATABASE_URL
               value: "postgresql://darwinist:darwinist@postgres-service-cqc:5432/darwinist"
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: $SERVICE_NAME-secret
+                  key: SECRET_KEY
           ports:
           - name: web
             containerPort: 5000

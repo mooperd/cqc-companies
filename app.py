@@ -2,6 +2,7 @@ import os
 import csv
 import io
 import base64
+from dotenv import load_dotenv
 from flask import Flask, render_template, request, redirect, url_for, flash
 from model import db, Provider, Facility, Contact
 import matplotlib
@@ -10,8 +11,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sqlalchemy import func, case
 
+load_dotenv()
+
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-here'
+# Local-dev fallback only; production must supply SECRET_KEY via the env
+# (Kubernetes Secret in k8s/secret.yaml, populated from secrets.FLASK_SECRET_KEY in CI).
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://darwinist:darwinist@localhost:5432/darwinist')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 

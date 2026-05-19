@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Lock CSVs to LF on commit regardless of platform — keeps the checked-in
+# CQC exports (Locations.csv, output.csv) byte-stable across Windows/macOS/Linux
+# contributors. See docs/adr/0007-csvs-checked-into-repo.md.
+*.csv text eol=lf
