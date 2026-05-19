@@ -1,0 +1,128 @@
+name: Refresh CQC CSVs
+
+# Daily off-peak poll. CQC publishes monthly, so most days this exits in
+# seconds with "nothing changed". When a new bulk file lands, the job
+# regenerates the committed CSVs and opens a PR against whichever branch
+# triggered the run (cron on `main` → PR against `main`; workflow_dispatch
+# from a feature branch → PR against that branch, for testing).
+#
+# See:
+#   docs/adr/0007-csvs-checked-into-repo.md (Amendment 2026-05-19)
+#   docs/plans/cqc-bulk-ingest.md (WS5 + WS6)
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+# Narrowest perms the job needs: push a branch + open a PR.
+# Everything else (issues, deployments, packages, etc.) stays read-only.
+permissions:
+  contents: write
+  pull-requests: write
+
+# Stop a long refresh from racing a same-day re-trigger.
+concurrency:
+  group: cqc-refresh-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Poll CQC + open PR if changed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need full history so we can branch and push.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run refresh
+        # cqc_refresh.py edits output.csv, Locations.csv, and
+        # data/cqc-refresh-state.json in place when anything changed.
+        # The script exits 0 either way; we detect "did anything change"
+        # via `git diff` below.
+        run: python cqc_refresh.py refresh
+
+      - name: Detect changes
+        id: changes
+        run: |
+          if git diff --quiet -- output.csv Locations.csv data/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing changed since the last refresh — exiting clean."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Detected changes — preparing PR."
+            git diff --shortstat -- output.csv Locations.csv data/
+          fi
+
+      - name: Open / update refresh PR
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%Y-%m-%d)
+          BRANCH="data/refresh-$DATE"
+          TITLE="data: refresh CSVs from CQC monthly bulk export ($DATE)"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # If today's branch already exists, force-push fresh content;
+          # otherwise create it. Keeps at most one refresh branch per day.
+          if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null; then
+            git fetch origin "$BRANCH":"$BRANCH"
+            git checkout "$BRANCH"
+            git checkout "origin/$BASE_REF" -- :^output.csv :^Locations.csv :^data/ 2>/dev/null || true
+            # Re-apply the regenerated files (still in the working tree
+            # from `Run refresh` — they survive checkout above thanks to
+            # the path exclusions).
+          else
+            git checkout -b "$BRANCH"
+          fi
+
+          # Compose a generated PR body.
+          OUT_ROWS=$(($(wc -l < output.csv) - 1))
+          LOC_ROWS=$(($(wc -l < Locations.csv) - 1))
+          {
+            echo "Automated refresh from CQC's monthly bulk downloads."
+            echo
+            echo "Source (per ADR 0007 Amendment):"
+            echo
+            python cqc_refresh.py discover | sed 's/^/    /'
+            echo
+            echo "Row counts in the regenerated files:"
+            echo
+            echo "- \`output.csv\`: $OUT_ROWS rows"
+            echo "- \`Locations.csv\`: $LOC_ROWS rows"
+            echo
+            echo "Shortstat:"
+            echo
+            echo '```'
+            git diff --shortstat HEAD~ -- output.csv Locations.csv data/ || true
+            echo '```'
+            echo
+            echo "Review the diff carefully — if CQC has changed column shape, the"
+            echo "mapper in \`cqc_refresh.py\` needs updating before this is merged."
+          } > /tmp/pr-body.md
+
+          git add output.csv Locations.csv data/
+          git commit -m "$TITLE"
+          git push --force-with-lease -u origin "$BRANCH"
+
+          # Open the PR if one isn't already open for this branch.
+          if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            echo "PR already open for $BRANCH — updated head."
+            gh pr edit "$BRANCH" --body-file /tmp/pr-body.md
+          else
+            gh pr create --base "$BASE_REF" --head "$BRANCH" \
+              --title "$TITLE" --body-file /tmp/pr-body.md
+          fi
