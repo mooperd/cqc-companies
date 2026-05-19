@@ -79,7 +79,14 @@ jobs:
       env:
         IMAGE_TAG: ${{ env.IMAGE_TAG }}
         NAMESPACE: ${{ env.NAMESPACE }}
+        SECRET_KEY: ${{ secrets.FLASK_SECRET_KEY }}
       run: |
+        if [ -z "$SECRET_KEY" ]; then
+          echo "::error::FLASK_SECRET_KEY repository secret is not set."
+          echo "Generate one with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
+          echo "Then add it under Settings → Secrets and variables → Actions."
+          exit 1
+        fi
         kubectl get nodes
         cat k8s/namespace.yaml | envsubst | kubectl apply -f -
 
@@ -87,6 +94,9 @@ jobs:
           | jq 'del(.metadata.namespace, .metadata.creationTimestamp, .metadata.resourceVersion, .metadata.selfLink, .metadata.uid, .metadata.annotations, .metadata.managedFields)' \
           | kubectl apply -n $NAMESPACE -f -
         cat k8s/namespace.yaml | envsubst | kubectl apply -f -
+        # SECRET_KEY (Flask session signing) lands as a per-service Secret before the
+        # Deployment references it via secretKeyRef in k8s/deployment.yaml.
+        cat k8s/secret.yaml | envsubst | kubectl apply -n $NAMESPACE -f -
         cat k8s/deployment.yaml | envsubst | kubectl apply -n $NAMESPACE -f -
         cat k8s/service.yaml | envsubst | kubectl apply -n $NAMESPACE -f -
         cat k8s/ingress.yaml | envsubst | kubectl apply -n $NAMESPACE -f -
