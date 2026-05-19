@@ -6,9 +6,13 @@ The interesting decisions (entity model, two-stage ingest, server-rendered chart
 
 ## Project memory discipline
 
-This project uses the four-document discipline from
-<https://robtaylor.github.io/claude-project-discipline/>. Four kinds of
-project memory, each with a clear home and a clear lifecycle:
+This project follows the four-document discipline defined by
+**[robtaylor/claude-project-discipline](https://github.com/robtaylor/claude-project-discipline)**
+(rendered version: <https://robtaylor.github.io/claude-project-discipline/>).
+That repository is the canonical source for the convention; this project
+adopts it verbatim with the handoff-format override noted further down.
+
+Four kinds of project memory, each with a clear home and a clear lifecycle:
 
 | Doc kind | Lives in | Lifetime | Answers |
 |---|---|---|---|
