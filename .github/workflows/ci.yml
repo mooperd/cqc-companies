@@ -1,0 +1,56 @@
+name: PR checks
+
+# Fires on every PR against any branch, and on direct pushes to non-main
+# branches. The existing main.yml deploy workflow handles `push:main` and
+# already builds the image; this workflow's job is to catch obvious
+# problems *before* a merge to main is requested.
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Python import smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Match Dockerfile (see docs/adr/0008-aks-envsubst-deploy.md
+          # and the WS8 follow-up that pinned this).
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Import smoke check
+        env:
+          # Both have safe dev fallbacks in app.py, but set them
+          # explicitly so the CI exercises the env-driven path.
+          SECRET_KEY: ci-smoke-test
+          # Quoted: the trailing colons in the sqlite URI would otherwise
+          # be parsed as YAML key/value separators.
+          DATABASE_URL: "sqlite:///:memory:"
+        run: |
+          python - <<'PY'
+          # If any of the four entry-point modules has a syntax error,
+          # a typo'd import, or a missing dependency, this fails.
+          import app
+          import model
+          import import_records
+          import enrich_locations
+
+          # Sanity-check the Flask app actually wired up.
+          routes = sorted(r.rule for r in app.app.url_map.iter_rules())
+          expected = {'/', '/healthz', '/import', '/providers', '/statistics'}
+          missing = expected - set(routes)
+          assert not missing, f'expected routes missing: {missing}'
+          print(f'OK — {len(routes)} routes registered: {routes}')
+          PY
