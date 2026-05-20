@@ -16,7 +16,7 @@ The three load-bearing goals, as agreed:
 
 **B. Mini CRM for tracking contact and touchpoints within those organisations.** Not built yet. The `Contact` model in `model.py` was reserved for this (see [ADR 0001](adr/0001-provider-facility-domain-model.md) Amendment 2026-05-19), but the actual CRM needs a different shape than `Contact` carries today — see "Data shape" below.
 
-**C. Automated outreach to those decision-makers, with async human input when needed.** Not built. The "async human input" pattern lives in a WhatsApp approval loop (via a WhatsApp Business API transport — Twilio is the likely choice, decided in Phase 4's ADR) with a web frontend escalation path when WhatsApp's lightweight surface isn't enough.
+**C. Automated outreach to those decision-makers, with async human input when needed.** Not built. The "async human input" pattern is centered on a **`Task` table**: every pending human decision (approve an outbound draft, decide the next move on a reply, re-auth a stale LinkedIn cookie, "no response after touch 5 — keep going or stop?") is a database row. The web UI is the authoritative decision surface; WhatsApp and email are notification channels that *push* pending tasks to the right human and *reflect* their decision back into the row. This generalises beyond outreach approval — any work-item that the automation can't resolve alone surfaces as a Task.
 
 ## Constraints and strategic decisions
 
@@ -30,7 +30,7 @@ These are the design choices that scope the next 6–10 ADRs:
 
 - **Companies House as the first identification source** (provisional — to be confirmed in ADR 0013). Reasoning: the HSCA bulk-download already gives us each provider's Companies House number, the Companies House API is free with no meaningful rate limit, and it returns legally-named directors with appointment dates. LinkedIn-via-Phantombuster fills the gap for non-director influencers but is paid and rate-limited.
 
-- **WhatsApp Business API for the human-in-the-loop approval surface**, with a web frontend for richer review. Phase 4 starts with **email approval** to lock in the channel-agnostic abstraction; WhatsApp swaps in at Phase 6 once a public webhook endpoint exists.
+- **Approval surface = a `Task` table with notification channels layered on top.** Every pending decision is a database row (state, assignee, payload, FK to the related Interaction or phantom-run); WhatsApp / email / web UI are *views* over that table, not separate state stores. The web UI is the authoritative decision surface; channels push and reflect. Phase 4 starts with **email-only push** to lock in the channel-agnostic abstraction; WhatsApp via a Business API transport (Twilio is the likely choice) swaps in at Phase 6 once a public webhook endpoint exists.
 
 - **GDPR posture: legitimate-interest basis** for storing personal data on B2B contacts, with explicit retention + erasure mechanism. We become a UK data controller the moment we scrape one LinkedIn profile; cannot be deferred past the first real enrichment run (Phase 3).
 
@@ -51,6 +51,11 @@ Provider (organisation)             ← exists
   └─ phantom-run runtime model       ← TBD (Phase 3, ADR 0014)
        (likely a persisted entity tracking kind, inputs, status,
         outputs, credits spent — exact shape decided in 0014)
+  └─ Task                            ← NEW (introduced in ADR 0017)
+       (kind: approve_outreach | review_reply | reauth_linkedin | …,
+        state: pending | approved | rejected | expired | snoozed,
+        payload (JSON), assignee FK User, created_at, decided_at,
+        FK to the relevant Interaction or phantom-run)
 ```
 
 The exact field shapes (encryption posture for the per-user secrets, indexes, FK on-delete behaviour, …) are owned by the introducing ADRs. This sketch exists to make the conversation legible.
@@ -67,7 +72,7 @@ We build the smallest meaningful slice first and add capability without invalida
 | **1. Smallest CRM loop** | Log in, see a Provider, list known People (manually entered), log one Interaction against a Person. Folds WS6 from `initial-debt-and-questions.md` into this phase. | 0011 (Person + Interaction + User), 0012 (app auth) | ~2 sessions |
 | **2. Companies House enrichment** | Auto-populate `Person` rows for legally-registered directors of each provider. Manual entry still works alongside; conflict-resolution rules established when sources disagree. | 0013 (Companies House integration + source hierarchy) | ~1 session |
 | **3. Phantombuster identification** | Scrape LinkedIn for non-director influencers. Phantom-run runtime model. GDPR controller posture in place. **No outreach yet.** | 0014 (Phantombuster runtime + credit accounting), 0015 (GDPR posture), 0016 (LinkedIn account hygiene) | ~3-4 sessions (three ADRs + first real scrape + GDPR work) |
-| **4. First outreach channel** | Email approval-loop + email send. Locks in the channel-adapter + approval-loop abstractions. **The outreach-channel abstraction must be channel-agnostic from day one** — designed so Phase 5's LinkedIn-DM channel is an addition, not a rewrite. | 0017 (approval-loop + async state machine), 0018 (outreach channels — channel-agnostic) | ~2 sessions |
+| **4. First outreach channel** | Email approval-loop + email send. Locks in the channel-adapter + approval-loop abstractions. **The outreach-channel abstraction must be channel-agnostic from day one** — designed so Phase 5's LinkedIn-DM channel is an addition, not a rewrite. ADR 0017 also introduces the `Task` entity (see Data shape) — Tasks are the source of truth for any pending human decision; email/WhatsApp/web are notification views. | 0017 (Task entity + approval-loop state machine), 0018 (outreach channels — channel-agnostic) | ~2 sessions |
 | **5. LinkedIn DMs as second channel** | Per-user action phantoms send real outreach. Touchpoint counter visible per Person. Triggers when touchpoint=5 (decided in ADR 0011 — see Open Questions). | extensions of 0014, 0016, 0018 | ~1 session |
 | **6. WhatsApp swap** | Replace email approval with WhatsApp via the chosen transport (Twilio is the likely candidate, decided in this phase's ADR extension). Adds a public webhook receiver — reopens the deployment question. | extension of 0017; new ADR for public-endpoint hosting | ~1 session, plus WhatsApp Business onboarding wait |
 
@@ -85,6 +90,7 @@ Stating the negative space so scope-creep is easier to spot:
 - **Not a CQC directory as a consumer product.** The directory UI exists to support our outreach, not as a destination site for external users.
 - **Not a marketing-automation system.** No broadcast campaigns, no mass-email blasts, no segmented drip sequences against thousands of contacts. One-to-one outreach only, with per-touchpoint review.
 - **Not an inbound CRM.** The expected traffic shape is *we initiate*, *they reply*. Inbound webhooks (from WhatsApp, from LinkedIn replies) feed back into Interactions but the system isn't designed around fielding cold inbound.
+- **Not a generic task tracker.** The `Task` entity is specifically for pending decisions *the automation can't make on its own* (approve a draft, decide next action on a reply, re-auth a credential, etc.). It's not a Trello replacement; team todos, project planning, and ad-hoc work-tracking live elsewhere.
 
 ## Open questions to answer along the way
 
@@ -98,6 +104,9 @@ These are flagged here so they're not forgotten as we move phase-by-phase. Each 
 - **Retention / erasure mechanics** — how a target's "delete me" request flows through `Person` + `Interaction` + cached scraped data. Decided in ADR 0015 (Phase 3).
 - **LinkedIn account warming policy** — how aggressive per-user phantoms can be before LinkedIn restricts the account. Decided in ADR 0016 (Phase 3).
 - **Approval-loop UX details** — exact WhatsApp template formats, what's quick-yes/no vs. what's "click here for the full draft", how multi-user approval works if one person drafts and another approves. Decided in ADR 0017 (Phase 4) and refined in Phase 6.
+- **Task assignment semantics** — does each Task get assigned to a specific User on creation (round-robin? based on which User the related Interaction belongs to?), or does it land in a team pool that anyone can claim? What's the snooze / re-assign UX? Decided in ADR 0017 (Phase 4).
+- **Task TTL and expiry** — do Tasks expire if not acted on? What's the default time-to-live, and what happens at expiry (auto-reject the underlying action, auto-escalate, just notify)? Decided in ADR 0017 (Phase 4).
+- **Task fanout policy** — when a Task is created, which channels notify (all of WhatsApp + email + web, or one based on user preference, or escalating sequence)? Decided in ADR 0017 (Phase 4) and refined alongside the WhatsApp swap.
 
 ## When to reconsider this whole direction
 
