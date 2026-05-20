@@ -115,6 +115,10 @@ uv run python enrich_locations.py Locations.csv    # locations enrichment pass
 
 See ADR 0005 for the two-stage ingest pipeline and ADR 0006 for the bulk-insert strategy.
 
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the pull request process, branch naming, and merge conventions.
+
 ## Deployment
 
 Push to `main` → GitHub Actions builds the image, pushes it to ACR, and applies the `k8s/*.yaml` manifests (with `envsubst`) to AKS. See ADR 0008 for the deployment style and ADR 0009 for the in-cluster PostgreSQL setup.
