@@ -1,9 +1,17 @@
 name: Build and Deploy to AKS
 
+# DISABLED on push:main as of 2026-05-20 — Azure is no longer the deploy
+# target. Workflow is preserved (rather than deleted) so the historical
+# manifests under k8s/*.yaml stay anchored to something runnable, and so
+# the workflow can be re-enabled by adding the push trigger back if a new
+# Azure-based deploy story emerges. ADRs 0008 (AKS deploy) and 0009
+# (in-cluster Postgres) explain the original setup; docs/product-vision.md
+# frames the current "cloud infra is dormant" stance and notes Phase 6 as
+# the natural time to revisit. `workflow_dispatch:` left enabled so the
+# job can still be run manually if needed (but it'll fail until the
+# AZURE_CREDENTIALS / FLASK_SECRET_KEY repository secrets are populated).
 on:
-  push:
-    branches: 
-      - 'main'
+  workflow_dispatch:
 
 env:
   TLD: darwinist.io
