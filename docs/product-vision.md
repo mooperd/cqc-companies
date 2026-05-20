@@ -76,11 +76,13 @@ We build the smallest meaningful slice first and add capability without invalida
 | **5. LinkedIn DMs as second channel** | Per-user action phantoms send real outreach. Touchpoint counter visible per Person. Triggers when touchpoint=5 (decided in ADR 0011 — see Open Questions). | extensions of 0014, 0016, 0018 | ~1 session |
 | **6. WhatsApp swap** | Replace email approval with WhatsApp via the chosen transport (Twilio is the likely candidate, decided in this phase's ADR extension). Adds a public webhook receiver — reopens the deployment question. | extension of 0017; new ADR for public-endpoint hosting | ~1 session, plus WhatsApp Business onboarding wait |
 
-The right time to **revisit cloud infrastructure** ([ADR 0008](adr/0008-aks-envsubst-deploy.md) and [0009](adr/0009-in-cluster-postgres.md), both currently dormant) is at Phase 6 — when WhatsApp's inbound webhooks force the issue. Phases 0–5 can run locally + in CI without a public endpoint.
+The right time to **decide on cloud infrastructure** is Phase 6 — when WhatsApp's inbound webhooks force the issue. Phases 0–5 run locally + in CI without a public endpoint, so the question stays parked.
 
-## Cloud infra is currently dormant
+## Cloud infra has been removed (2026-05-20)
 
-[ADR 0008](adr/0008-aks-envsubst-deploy.md) (AKS deploy) and [ADR 0009](adr/0009-in-cluster-postgres.md) (in-cluster Postgres) describe a deploy story that's not currently in use. They're not marked Withdrawn because they still document why the previous setup looked the way it did, which will be relevant when Phase 6 picks the next deploy story. `CLAUDE.md` still says "Deployed to AKS at `cqc.darwinist.io`" — that's stale; a follow-up will update it.
+The previous AKS deploy story is gone: `.github/workflows/main.yml` and `k8s/*.yaml` were deleted, and [ADR 0008](adr/0008-aks-envsubst-deploy.md) (AKS deploy) and [ADR 0009](adr/0009-in-cluster-postgres.md) (in-cluster Postgres) are marked Withdrawn. They are kept (not deleted) so the historical reasoning survives — when Phase 6 picks the next deploy target, the successor ADR will reference them.
+
+**Postgres still exists for local dev and CI**, but now via Docker (compose locally, service container in CI). That's not a "deploy story", it's the test bench.
 
 ## What this project is NOT
 

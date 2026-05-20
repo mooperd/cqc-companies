@@ -1,8 +1,16 @@
 # ADR 0008 — AKS deploy via envsubst-templated manifests
 
-**Status:** Accepted (2025-08-29).
+**Status:** Withdrawn (2026-05-20). See Amendment below.
 
 **TL;DR.** In the context of deploying this Flask app to an existing Azure Kubernetes Service cluster shared with other `darwinist.io` services, facing a single deployment target and no existing tooling investment, we chose to template the four k8s manifests with shell-level `envsubst` from inside a single GitHub Actions workflow, accepting that this scales poorly to multi-environment / multi-tenant deploys but is dead-simple to read and audit.
+
+## Amendment (2026-05-20)
+
+**Withdrawn without replacement.** Azure is no longer the deploy target; this ADR's `.github/workflows/main.yml` and `k8s/*.yaml` files have been removed from the tree. The original decision is preserved here as historical record — the reasoning was sound for its context, just no longer applicable.
+
+No successor ADR yet; **the next deploy story is a future decision** (deferred until [Phase 6 of the product vision](../product-vision.md), when WhatsApp's inbound webhooks force a public-endpoint requirement). When that decision is made, the new ADR should reference this one (and [ADR 0009](0009-in-cluster-postgres.md), withdrawn alongside).
+
+The original Context, Decision, Alternatives, Consequences, and Walk-back sections below are retained for the historical record. None of them describes current behaviour.
 
 ## Context
 
