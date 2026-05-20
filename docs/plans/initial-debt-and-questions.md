@@ -31,20 +31,9 @@ The workstreams split into two groups: **verify** (we genuinely don't know the a
 
 ### WS1 — Verify: does the deployed app actually reach Postgres? (S)
 
-**Status:** Open. Source: ADR 0009 §Decision-5, ADR 0008 §Consequences.
+**Status:** Closed by removal (2026-05-20) — superseded by ADRs 0008/0009 Withdrawn.
 
-`k8s/deployment.yaml:30` hardcodes `DATABASE_URL=postgresql://darwinist:darwinist@postgres-service-cqc:5432/darwinist`, but the Postgres `Service` in `k8s/postgres.yaml:90-99` is named **`postgres`**, not `postgres-service-cqc`. The commit history (`e838157 fixed database url`) suggests this was deliberately set, so something must be filling the gap — most likely the `application-environment-variables` ConfigMap that the deploy workflow copies from the `default` namespace (`gh-actions/main.yml:86-88`) supplies a different value that takes precedence over the inline env var.
-
-**Deliverables:**
-
-- `kubectl exec`-based check in the running pod: `env | grep DATABASE_URL` and confirm what the process actually sees.
-- `kubectl get configmap application-environment-variables -n cqc -o yaml` to see what the cross-service ConfigMap supplies.
-- A one-paragraph update to ADR 0008 / ADR 0009 explaining the actual resolution mechanism.
-
-**Exit criteria:**
-
-- We can state, with `kubectl` evidence, *which* `DATABASE_URL` value the app uses in prod and *why*.
-- Either the inline hardcoded URL is removed (if the ConfigMap supplies it) or the Service name is corrected (if the hardcoded URL is what's actually used).
+This workstream's entire premise was the AKS deploy: was the hardcoded `postgres-service-cqc` in `k8s/deployment.yaml` working in spite of the Service being named `postgres`? With the cloud deploy removed (see [ADR 0008 Amendment](../adr/0008-aks-envsubst-deploy.md#amendment-2026-05-20) and [0009 Amendment](../adr/0009-in-cluster-postgres.md#amendment-2026-05-20)), there is no deployed app to verify. The question becomes academic; if a future deploy story brings something similar back, the misname is in the now-deleted manifest and the new ADR will be written from scratch.
 
 ---
 
@@ -85,20 +74,11 @@ The Dockerfile's `CMD ["python", "app.py"]` causes `create_tables()` (`app.py:61
 
 ### WS4 — Fix: rotate Postgres credentials away from `darwinist:darwinist` (S)
 
-**Status:** Open. Source: ADR 0009 §Decision-3, §Consequences.
+**Status:** Closed by removal (2026-05-20) — the prod side is gone.
 
-Currently identical between local dev (`.env`, `run.sh`) and prod (`k8s/postgres.yaml:13-15`). Plus the `DATABASE_URL` in `k8s/deployment.yaml:30` is hardcoded inline rather than read from the Secret.
+The `darwinist:darwinist` Postgres credentials were a "same in local and prod" smell. With the cloud deploy removed (see [ADR 0009 Amendment](../adr/0009-in-cluster-postgres.md#amendment-2026-05-20)), there is no prod Postgres to rotate against. The credentials remain in `.env` / `run.sh` for local dev only — that's fine and intentional.
 
-**Deliverables:**
-
-- Generate a real password (random ≥24 chars), update `postgres-secret-cqc` in the cluster.
-- Change `k8s/deployment.yaml` to read `DATABASE_URL` from `postgres-secret-cqc` (or compose it from `secretKeyRef:` env vars), removing the hardcoded URL.
-- Keep `darwinist:darwinist` in `.env` / `run.sh` for local dev only; document the separation in `CLAUDE.md`.
-
-**Exit criteria:**
-
-- `grep "darwinist:darwinist" k8s/` returns nothing.
-- Deployment continues to roll out green.
+The credential separation will become live again when Phase 6 of [`docs/product-vision.md`](../product-vision.md) brings back a deploy target; the successor ADR to 0008/0009 will name how prod credentials get provisioned. Until then this workstream is closed.
 
 ---
 
@@ -211,37 +191,17 @@ This WS is to **commit to a trigger**, not to add Alembic now. The output is a s
 
 ### WS10 — Decide: backup story for in-cluster Postgres (M)
 
-**Status:** Open. Source: ADR 0009 §Consequences, §Walk-back.
+**Status:** Closed by removal (2026-05-20) — there is no in-cluster Postgres to back up.
 
-Today's de-facto disaster recovery is "re-run the importers from the CSVs in the repo". This is true *only* as long as Postgres holds no data that isn't already in the CSVs. The moment user-generated state lands (auth via WS5, saved filters, notes on facilities), this assumption silently breaks.
-
-**Deliverables:**
-
-- Confirm: is there any non-CSV-derived data in Postgres today? (`SELECT` against `provider` / `facility` for rows with no matching CQC ID.)
-- If no: write a one-line note in ADR 0009 confirming the importers-as-DR assumption holds today, and a sentinel: "the moment WS5 (or any auth feature) lands, this WS reopens with backup scope".
-- If yes: scope a `CronJob` running `pg_dump` to Azure Blob, with a retention policy.
-
-**Exit criteria:**
-
-- Either ADR 0009 has the "importers-as-DR" sentinel, or there is a working scheduled backup.
+The de-facto disaster recovery (re-run the importers from the CSVs) still holds for local dev / CI. The general DR concern — *"the moment any user-generated state lands, the importers-as-DR assumption breaks"* — is real and reopens at Phase 1 of [`docs/product-vision.md`](../product-vision.md) when the CRM tables (`Person`, `Interaction`, `User`) start holding non-CSV-derived data. That belongs in the successor plan for the CRM phase, not here.
 
 ---
 
 ### WS11 — Decide: do we need a staging environment? (M)
 
-**Status:** Open. Source: ADR 0008 §Consequences.
+**Status:** Closed by removal (2026-05-20) — no prod, no staging question.
 
-Every push to `main` lands in prod. Acceptable when the audience is internal and the rollback path (`kubectl set image` to a prior SHA) is fast. Worth a deliberate decision rather than the current "no one set one up".
-
-**Deliverables:**
-
-- Decision: stay single-environment, or add a staging namespace (`cqc-staging`) and a `staging` branch that deploys to it.
-- If single-environment: ADR amendment to ADR 0008 stating the choice and the rollback drill.
-- If staging: scope into a follow-up plan; non-trivial (cert handling, DB seeding, host name choice).
-
-**Exit criteria:**
-
-- ADR 0008 has an explicit decision recorded; not left to "no one set one up".
+When the next deploy story emerges (Phase 6 of [`docs/product-vision.md`](../product-vision.md)), the staging question reopens against whatever that target is. The successor ADR to 0008/0009 will name it explicitly rather than leaving it to "no one set one up".
 
 ---
 
@@ -249,17 +209,17 @@ Every push to `main` lands in prod. Acceptable when the audience is internal and
 
 When all of these are true, this plan closes (`Status: Closed (YYYY-MM-DD)`) and the open items have either shipped, been amended into the relevant ADR, or spawned their own follow-up plan:
 
-- [ ] WS1 — `DATABASE_URL` resolution mechanism documented in ADR 0008/0009.
-- [ ] WS2 — Prod-vs-`model.py` schema drift checked.
+- [x] WS1 — Closed by removal (2026-05-20); ADRs 0008/0009 Withdrawn.
+- [ ] WS2 — Prod-vs-`model.py` schema drift checked. *(Rescoped: now about local-dev Postgres drift since prod is gone — still relevant.)*
 - [ ] WS3 — `SECRET_KEY` no longer the placeholder.
-- [ ] WS4 — Postgres creds rotated; no `darwinist:darwinist` in `k8s/`.
+- [x] WS4 — Closed by removal (2026-05-20); no prod Postgres to rotate against.
 - [ ] WS5 — Either `google_login.py` deleted or auth wired and ADR'd.
 - [ ] WS6 — `Contact` class deleted, or explicitly deferred to WS7.
 - [ ] WS7 — Alembic trigger committed in ADR 0002 amendment.
 - [ ] WS8 — Dockerfile + requirements.txt pinned.
 - [ ] WS9 — `*.csv binary` in `.gitattributes`.
-- [ ] WS10 — DR sentinel in ADR 0009 or backup CronJob in place.
-- [ ] WS11 — Staging decision recorded in ADR 0008.
+- [x] WS10 — Closed by removal (2026-05-20); reopens at CRM phase with non-CSV-derived data.
+- [x] WS11 — Closed by removal (2026-05-20); reopens with the next deploy target.
 
 ## References
 

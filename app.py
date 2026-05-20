@@ -14,8 +14,7 @@ from sqlalchemy import func, case
 load_dotenv()
 
 app = Flask(__name__)
-# Local-dev fallback only; production must supply SECRET_KEY via the env
-# (Kubernetes Secret in k8s/secret.yaml, populated from secrets.FLASK_SECRET_KEY in CI).
+# Local-dev fallback only; any future deploy must supply SECRET_KEY via the env.
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://darwinist:darwinist@localhost:5432/darwinist')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False

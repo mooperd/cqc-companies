@@ -1,8 +1,18 @@
 # ADR 0009 — In-cluster PostgreSQL on a `managed-csi` PVC
 
-**Status:** Accepted (2025-08-29).
+**Status:** Withdrawn (2026-05-20). See Amendment below.
 
 **TL;DR.** In the context of needing a Postgres for the deployed app without standing up Azure Database for PostgreSQL or any managed service, we chose to run a single Postgres 15 pod in the `cqc` namespace backed by a 10 Gi `managed-csi` (Azure Disk) PVC with `Recreate` rollout strategy, accepting that this is a single point of failure with no backup automation in exchange for zero managed-service spend and a self-contained deploy.
+
+## Amendment (2026-05-20)
+
+**Withdrawn without replacement.** Withdrawn alongside [ADR 0008](0008-aks-envsubst-deploy.md) — the in-cluster Postgres was part of the AKS deploy story that's being removed. The `k8s/postgres.yaml` manifest has been deleted.
+
+Postgres still exists for local development and CI, but now via Docker (compose for local, service container for CI) rather than as a deployed pod. That's the foundation phase, not a "deploy story" — see the forthcoming `docs/plans/foundation.md`.
+
+The "next-Postgres-target" decision is deferred to the same future-deploy ADR that supersedes 0008. Likely candidates when that time comes: a managed Postgres on whatever the new compute target is; an external managed Postgres reachable from multiple deploys; or — if the data stays small — back to a single-pod-with-volume model on the new target.
+
+The original Context, Decision, Alternatives, Consequences, and Walk-back sections below are retained for the historical record. They describe a setup that no longer exists.
 
 ## Context
 
