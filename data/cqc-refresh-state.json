@@ -1,0 +1,20 @@
+{
+  "last_run": "2026-05-26T05:41:43Z",
+  "files": {
+    "directory_csv": {
+      "url": "https://www.cqc.org.uk/sites/default/files/2026-05/20_May_2026_CQC_directory.csv",
+      "etag": "\"11f6cc8-65240493c74b8\"",
+      "last_modified": "Wed, 20 May 2026 14:05:20 GMT"
+    },
+    "hsca_ods": {
+      "url": "https://www.cqc.org.uk/sites/default/files/2026-05/05_May_2026_HSCA_Active_Locations.ods",
+      "etag": "\"16f8cf8-65136561f1b71\"",
+      "last_modified": "Thu, 07 May 2026 08:47:55 GMT"
+    },
+    "ratings_ods": {
+      "url": "https://www.cqc.org.uk/sites/default/files/2026-05/05_May_2026_Latest_ratings.ods",
+      "etag": "\"18f8a3a-65136542f57fd\"",
+      "last_modified": "Thu, 07 May 2026 08:47:22 GMT"
+    }
+  }
+}
