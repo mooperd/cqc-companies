@@ -1,6 +1,6 @@
 # Plan — Initial debt and open questions
 
-**Status:** Proposed.
+**Status:** Closed (2026-06-17).
 
 <!--
 Status lifecycle:
@@ -24,15 +24,21 @@ This plan is bounded: when every workstream below is Shipped, Investigated, or e
 
 ## Where things stand (2026-06-17)
 
-The initial backlog (2026-05-19 reverse-engineering pass) has had its first
-real sweep:
+The initial backlog (2026-05-19 reverse-engineering pass) is **fully swept** —
+this plan is now Closed. Outcome by workstream:
 
 - **Closed by removal** (cloud-deploy gone): WS1, WS4, WS10, WS11.
 - **Shipped / addressed:** WS3 (`SECRET_KEY` fail-loud in prod / generate-and-warn
   in dev), WS6 (comment fixed), WS8 (Docker + deps pinned), WS9 (CSV line-endings
   locked via `eol=lf`).
-- **Still open:** WS2 (schema-drift check), WS5 (google_login decision),
-  WS7 (Alembic-trigger decision).
+- **Decided + shipped:** WS5 (deleted `google_login.py`, auth deferred — ADR 0011),
+  WS7 (Alembic trigger committed — ADR 0002 Amendment).
+- **Investigated + closed:** WS2 (no drift; no persistent DB to drift —
+  ADR 0002 Amendment).
+
+Follow-on work spawned rather than done here: a future `docs/plans/auth.md`
+(when auth is needed) and `docs/plans/crm-contacts.md` (the WS6 `Contact`
+reshape). Both reopen against `docs/product-vision.md`.
 
 ## Workstreams
 
@@ -50,7 +56,15 @@ This workstream's entire premise was the AKS deploy: was the hardcoded `postgres
 
 ### WS2 — Verify: does `db.create_all()` reliably set up the schema on first deploy? (S)
 
-**Status:** Open. Source: ADR 0002 §Consequences.
+**Status:** Investigated + closed (2026-06-17). Source: ADR 0002 §Consequences.
+
+Finding: **no drift, and no persistent database to drift.** Prod is gone and no
+seeded local cqc database exists, so the schema is rebuilt from `model.py` via
+`create_all()` each run. Verified `create_all()` faithfully reproduces
+`model.py` (provider 11 / facility 38 / contact 20 columns). The
+`create_all()`-never-`ALTER`s gap is real but forward-looking; it is now
+governed by the WS7 trigger and the safe column-add procedure, both recorded in
+the [ADR 0002 Amendment (2026-06-17)](../adr/0002-postgres-sqlalchemy-no-migrations.md#amendment-2026-06-17--alembic-trigger-committed-current-drift-status).
 
 The Dockerfile's `CMD ["python", "app.py"]` causes `create_tables()` (`app.py:612-617`) to run on every container start. `db.create_all()` is `CREATE TABLE IF NOT EXISTS`, so it's idempotent against an existing schema, but it does **not** add new columns to existing tables. This means any column added to `model.py` after the first prod import lands silently as a "missing column" error at query time, not at startup.
 
@@ -112,7 +126,14 @@ The credential separation will become live again when Phase 6 of [`docs/product-
 
 ### WS5 — Decide: wire up `google_login.py` or delete it (M)
 
-**Status:** Open. Source: ADR 0003 §Context.
+**Status:** Decided + shipped (2026-06-17) — **Path A (delete)**. Source: ADR 0003 §Context.
+
+`google_login.py` was deleted (it couldn't even import: missing `app.telemetry`
+and undeclared `requests_oauthlib`, and nothing referenced it). Authentication
+is deferred until a real driver appears (the CRM phase). The decision and the
+restart-from-scratch plan are recorded in
+[ADR 0011](../adr/0011-defer-authentication.md). WS3 already cleared the shared
+`SECRET_KEY` precondition, so a future auth effort starts clean.
 
 `google_login.py` imports `app.telemetry` (`from app.telemetry import traced_function, get_tracer`) which does not exist. It is not imported from `app.py`. It carries OpenTelemetry-decorated functions and reads `GOOGLE_OAUTH2_CONFIG_B64`. This is aspirational scope from a prior attempt.
 
@@ -176,7 +197,14 @@ This WS is now scoped to: **decide when to reshape `Contact` and what the minimu
 
 ### WS7 — Decide: when does Alembic come in? (M)
 
-**Status:** Open. Source: ADR 0002 §Walk-back, ADR 0001 §Walk-back.
+**Status:** Decided (2026-06-17) — **trigger (a): before the next non-additive
+change.** Source: ADR 0002 §Walk-back, ADR 0001 §Walk-back.
+
+Committed in the [ADR 0002 Amendment (2026-06-17)](../adr/0002-postgres-sqlalchemy-no-migrations.md#amendment-2026-06-17--alembic-trigger-committed-current-drift-status):
+Alembic comes in before the first rename / drop / type-change / constraint
+addition. Additive nullable columns may continue under `create_all()` + the
+manual procedure until then. ADR 0002's `Status:` line now records the committed
+trigger, satisfying this WS's exit criterion.
 
 ADR 0002 calls the absence of Alembic a *phase*, with specific walk-back triggers: a non-additive schema change, dataset size past "re-import in an hour", or a second deployment target.
 
@@ -264,12 +292,12 @@ When the next deploy story emerges (Phase 6 of [`docs/product-vision.md`](../pro
 When all of these are true, this plan closes (`Status: Closed (YYYY-MM-DD)`) and the open items have either shipped, been amended into the relevant ADR, or spawned their own follow-up plan:
 
 - [x] WS1 — Closed by removal (2026-05-20); ADRs 0008/0009 Withdrawn.
-- [ ] WS2 — Prod-vs-`model.py` schema drift checked. *(Rescoped: now about local-dev Postgres drift since prod is gone — still relevant.)*
+- [x] WS2 — Schema-drift checked (2026-06-17): no drift, no persistent DB to drift; `create_all()` matches `model.py`. See ADR 0002 Amendment.
 - [x] WS3 — `SECRET_KEY` no longer the placeholder (2026-06-17): env-driven, fail-loud in prod, generate-and-warn in dev.
 - [x] WS4 — Closed by removal (2026-05-20); no prod Postgres to rotate against.
-- [ ] WS5 — Either `google_login.py` deleted or auth wired and ADR'd.
+- [x] WS5 — `google_login.py` deleted (2026-06-17); auth deferred — ADR 0011.
 - [x] WS6 — Misleading comment corrected (2026-06-17); CRM reshape deferred to a future `crm-contacts` plan.
-- [ ] WS7 — Alembic trigger committed in ADR 0002 amendment.
+- [x] WS7 — Alembic trigger committed (2026-06-17) in ADR 0002 Amendment — option (a), before the next non-additive change.
 - [x] WS8 — Dockerfile + requirements.txt pinned (2026-06-17).
 - [x] WS9 — Line-ending corruption closed (2026-06-17) via `*.csv text eol=lf` (not `binary`).
 - [x] WS10 — Closed by removal (2026-05-20); reopens at CRM phase with non-CSV-derived data.
