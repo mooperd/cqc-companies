@@ -6,6 +6,10 @@ name: Refresh CQC CSVs
 # triggered the run (cron on `main` → PR against `main`; workflow_dispatch
 # from a feature branch → PR against that branch, for testing).
 #
+# The PR lives on ONE stable, bot-owned branch (`data/refresh`), rebuilt
+# from the base ref and force-pushed each run. That keeps at most one open
+# refresh PR at a time, rather than one orphaned branch per day.
+#
 # See:
 #   docs/adr/0007-csvs-checked-into-repo.md (Amendment 2026-05-19)
 #   docs/plans/cqc-bulk-ingest.md (WS5 + WS6)
@@ -73,7 +77,10 @@ jobs:
           : "${GH_TOKEN:?GH_TOKEN unset (workflow misconfigured)}"
 
           DATE=$(date -u +%Y-%m-%d)
-          BRANCH="data/refresh-$DATE"
+          # One stable, bot-owned branch — NOT one per day. Reusing it means
+          # at most one open refresh PR at a time; the date only labels the
+          # PR title / commit, it does not fork a new branch each run.
+          BRANCH="data/refresh"
           TITLE="data: refresh CSVs from CQC monthly bulk export ($DATE)"
 
           git config user.name "github-actions[bot]"
@@ -86,9 +93,9 @@ jobs:
           git stash push --include-untracked -m "cqc-refresh" -- \
             output.csv Locations.csv data/
 
-          # Always create the branch fresh from the trigger's base ref.
-          # If today's branch already exists upstream, the later
-          # --force-with-lease push replaces its content.
+          # Always rebuild the refresh branch fresh from the trigger's base
+          # ref. If it already exists upstream (from a prior run whose PR
+          # hasn't merged), the later force-push replaces its content.
           git fetch origin "$BASE_REF"
           git checkout -B "$BRANCH" "origin/$BASE_REF"
           git stash pop
@@ -113,7 +120,12 @@ jobs:
 
           git add output.csv Locations.csv data/cqc-refresh-state.json
           git commit -m "$TITLE"
-          git push --force-with-lease -u origin "$BRANCH"
+          # Plain --force (not --force-with-lease): this branch is rebuilt
+          # from the base ref every run and exclusively bot-owned, and the
+          # concurrency group above serializes runs — so there is no
+          # unseen-concurrent-push to guard against, and --force-with-lease
+          # has no remote-tracking ref to lease against here anyway.
+          git push --force -u origin "$BRANCH"
 
           if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
             echo "PR already open for $BRANCH — updating body."
