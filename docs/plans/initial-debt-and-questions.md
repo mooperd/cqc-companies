@@ -28,10 +28,9 @@ The initial backlog (2026-05-19 reverse-engineering pass) has had its first
 real sweep:
 
 - **Closed by removal** (cloud-deploy gone): WS1, WS4, WS10, WS11.
-- **Shipped / addressed:** WS6 (comment fixed), WS8 (Docker + deps pinned),
-  WS9 (CSV line-endings locked via `eol=lf`).
-- **Partial:** WS3 (`SECRET_KEY` now env-driven; literal fallback + fail-loud
-  still TODO).
+- **Shipped / addressed:** WS3 (`SECRET_KEY` fail-loud in prod / generate-and-warn
+  in dev), WS6 (comment fixed), WS8 (Docker + deps pinned), WS9 (CSV line-endings
+  locked via `eol=lf`).
 - **Still open:** WS2 (schema-drift check), WS5 (google_login decision),
   WS7 (Alembic-trigger decision).
 
@@ -68,16 +67,26 @@ The Dockerfile's `CMD ["python", "app.py"]` causes `create_tables()` (`app.py:61
 
 ### WS3 — Fix: rotate `SECRET_KEY` away from the literal placeholder (S)
 
-**Status:** Partially done (2026-06-17). Source: ADR 0003 §Consequences.
+**Status:** Shipped (2026-06-17). Source: ADR 0003 §Consequences.
 
-`app.py:18` now reads `os.getenv('SECRET_KEY', 'your-secret-key-here')` — the
-env-driven path exists, but the literal placeholder remains as the fallback
-and there is no fail-loud behaviour. So the *exit criterion below is not yet
-met*: `grep "your-secret-key-here"` still finds the literal. Remaining work is
-to drop the literal default and fail loud (raise in prod, generate-and-warn in
-dev). Acceptable to leave for now because nothing in the app uses sessions, but
-a footgun the moment any auth, flash-message persistence, or CSRF protection is
-wired in.
+`app.py` no longer carries the `'your-secret-key-here'` literal. It now:
+
+- uses `SECRET_KEY` from the env when set (dev or prod);
+- when unset, **fails loud in production** (`FLASK_ENV=production` → `RuntimeError`,
+  refusing to start with an ephemeral key);
+- when unset in **development** (the default), generates an ephemeral key with
+  `secrets.token_hex(32)` and logs a warning.
+
+`FLASK_ENV` is the prod/dev gate, read explicitly via `os.getenv` (Flask 3 no
+longer auto-reads it). `.env.example` documents the convention and `run.sh`
+generates a unique local `SECRET_KEY` into the `.env` it writes (with a
+"rotate before shared/prod use" note), so local runs don't hit the ephemeral
+path. The k8s-ConfigMap deliverable is moot — there is no deploy pipeline; the
+successor-to-0008/0009 deploy ADR will name how prod supplies `SECRET_KEY`.
+
+Verified: dev-no-key → generated + warned; prod-no-key → raised; explicit key
+→ honored. Exit criterion met — `grep "your-secret-key-here"` no longer finds
+the literal in code.
 
 **Deliverables:**
 
@@ -256,7 +265,7 @@ When all of these are true, this plan closes (`Status: Closed (YYYY-MM-DD)`) and
 
 - [x] WS1 — Closed by removal (2026-05-20); ADRs 0008/0009 Withdrawn.
 - [ ] WS2 — Prod-vs-`model.py` schema drift checked. *(Rescoped: now about local-dev Postgres drift since prod is gone — still relevant.)*
-- [ ] WS3 — `SECRET_KEY` no longer the placeholder. *(Partial 2026-06-17: env-driven, but literal fallback + fail-loud still TODO.)*
+- [x] WS3 — `SECRET_KEY` no longer the placeholder (2026-06-17): env-driven, fail-loud in prod, generate-and-warn in dev.
 - [x] WS4 — Closed by removal (2026-05-20); no prod Postgres to rotate against.
 - [ ] WS5 — Either `google_login.py` deleted or auth wired and ADR'd.
 - [x] WS6 — Misleading comment corrected (2026-06-17); CRM reshape deferred to a future `crm-contacts` plan.
