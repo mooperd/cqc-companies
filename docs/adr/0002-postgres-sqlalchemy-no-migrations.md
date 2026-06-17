@@ -1,8 +1,37 @@
 # ADR 0002 — PostgreSQL + Flask-SQLAlchemy; `db.create_all()` for schema
 
-**Status:** Accepted (2025-08-28).
+**Status:** Accepted (2025-08-28). Walk-back trigger committed 2026-06-17 — see Amendment.
 
 **TL;DR.** In the context of a small Flask app whose schema is driven by two well-defined CSV exports, facing a startup-stage codebase where Alembic overhead would be premature, we chose PostgreSQL via Flask-SQLAlchemy with `db.create_all()` as the only schema-management mechanism, accepting that any non-additive schema change requires either a hand-written SQL migration or a database drop-and-reimport.
+
+## Amendment (2026-06-17) — Alembic trigger committed; current drift status
+
+Closes [`docs/plans/initial-debt-and-questions.md`](../plans/initial-debt-and-questions.md)
+WS7 (commit a trigger) and WS2 (drift check + safe-add note).
+
+**Committed trigger (WS7):** Alembic comes in **before the next non-additive
+schema change** — i.e. the first column rename, drop, type-change, or
+not-null/constraint addition. Additive nullable columns may still be added
+under `create_all()` using the manual procedure below until that point. (This
+is trigger option (a) from *Walk-back options*; the dataset-size and
+second-target triggers remain as secondary tripwires.)
+
+**Drift status today (WS2):** there is **no drift** — and currently no
+persistent database to drift. Prod is gone (ADR 0009 Withdrawn) and no seeded
+local cqc database exists; the schema is rebuilt from `model.py` via
+`create_all()` on each run. Verified 2026-06-17 that `create_all()` faithfully
+reproduces `model.py` (provider 11 / facility 38 / contact 20 columns). The
+drift risk is therefore entirely forward-looking, which is exactly what the
+trigger above governs.
+
+**Safe column-add procedure until Alembic arrives (WS2):** because
+`create_all()` only does `CREATE TABLE IF NOT EXISTS` and never `ALTER`, adding
+a column to `model.py` does **not** reach an existing database. Until Alembic
+lands, after adding a nullable column to `model.py` either (a) drop and
+re-import (`import_records.py` + `enrich_locations.py`, minutes on the current
+dataset), or (b) apply the matching `ALTER TABLE <t> ADD COLUMN <c> <type>;` by
+hand against each live database. A non-additive change trips the trigger and
+must wait for Alembic.
 
 ## Context
 
