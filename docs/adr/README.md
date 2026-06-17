@@ -17,9 +17,10 @@ These first ten ADRs were reverse-engineered from the codebase as of `2fe0977` (
 | 0005 | [Two-stage CSV ingest keyed on CQC IDs](0005-two-stage-csv-ingest.md) | Accepted 2025-08-28 |
 | 0006 | [In-memory caches + 5,000-row bulk inserts for import](0006-bulk-import-strategy.md) | Accepted 2025-08-28 |
 | 0007 | [CQC source CSVs checked into the repository](0007-csvs-checked-into-repo.md) | Accepted 2025-08-28 |
-| 0008 | [AKS deploy via envsubst-templated manifests](0008-aks-envsubst-deploy.md) | Accepted 2025-08-29 |
-| 0009 | [In-cluster PostgreSQL on a `managed-csi` PVC](0009-in-cluster-postgres.md) | Accepted 2025-08-29 |
+| 0008 | [AKS deploy via envsubst-templated manifests](0008-aks-envsubst-deploy.md) | Withdrawn 2026-05-20 |
+| 0009 | [In-cluster PostgreSQL on a `managed-csi` PVC](0009-in-cluster-postgres.md) | Withdrawn 2026-05-20 |
 | 0010 | [Hardcoded specialism / service-type filter taxonomy](0010-hardcoded-filter-taxonomy.md) | Accepted 2025-08-29 |
+| 0011 | [Defer authentication; remove the unwired `google_login.py`](0011-defer-authentication.md) | Accepted 2026-06-17 |
 
 ## Format
 
