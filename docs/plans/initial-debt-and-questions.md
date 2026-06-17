@@ -16,12 +16,24 @@ This plan is bounded: when every workstream below is Shipped, Investigated, or e
 
 ## Prerequisites
 
-- ADRs 0001–0010 Accepted (they are).
-- A working `kubectl` context against the `cqc` AKS namespace, for the verification workstreams.
+- ADRs 0001–0010 reviewed. Note 0008/0009 are now **Withdrawn** (cloud deploy
+  removed 2026-05-20), which closed the deploy-dependent workstreams below.
+- The `kubectl`-against-AKS prerequisite no longer applies — those verification
+  workstreams (WS1) are closed by removal. The remaining `verify` workstream
+  (WS2) runs against local-dev Postgres.
 
-## Where things stand (2026-05-19)
+## Where things stand (2026-06-17)
 
-Nothing started. This is the initial backlog produced from the reverse-engineering pass.
+The initial backlog (2026-05-19 reverse-engineering pass) has had its first
+real sweep:
+
+- **Closed by removal** (cloud-deploy gone): WS1, WS4, WS10, WS11.
+- **Shipped / addressed:** WS6 (comment fixed), WS8 (Docker + deps pinned),
+  WS9 (CSV line-endings locked via `eol=lf`).
+- **Partial:** WS3 (`SECRET_KEY` now env-driven; literal fallback + fail-loud
+  still TODO).
+- **Still open:** WS2 (schema-drift check), WS5 (google_login decision),
+  WS7 (Alembic-trigger decision).
 
 ## Workstreams
 
@@ -56,9 +68,16 @@ The Dockerfile's `CMD ["python", "app.py"]` causes `create_tables()` (`app.py:61
 
 ### WS3 — Fix: rotate `SECRET_KEY` away from the literal placeholder (S)
 
-**Status:** Open. Source: ADR 0003 §Consequences.
+**Status:** Partially done (2026-06-17). Source: ADR 0003 §Consequences.
 
-`app.py:14` is `app.config['SECRET_KEY'] = 'your-secret-key-here'`. Acceptable today because nothing in the app uses sessions, but a footgun the moment any auth, flash-message persistence, or CSRF protection is wired in.
+`app.py:18` now reads `os.getenv('SECRET_KEY', 'your-secret-key-here')` — the
+env-driven path exists, but the literal placeholder remains as the fallback
+and there is no fail-loud behaviour. So the *exit criterion below is not yet
+met*: `grep "your-secret-key-here"` still finds the literal. Remaining work is
+to drop the literal default and fail loud (raise in prod, generate-and-warn in
+dev). Acceptable to leave for now because nothing in the app uses sessions, but
+a footgun the moment any auth, flash-message persistence, or CSRF protection is
+wired in.
 
 **Deliverables:**
 
@@ -108,7 +127,16 @@ If Path B, this should spawn an `auth` plan and a `0011-google-oauth.md` ADR bef
 
 ### WS6 — Reshape the `Contact` placeholder for its actual purpose (M)
 
-**Status:** Open. Source: ADR 0001 Amendment (2026-05-19).
+**Status:** Immediate deliverable shipped (2026-06-17); reshape deferred to a
+future CRM plan. Source: ADR 0001 Amendment (2026-05-19).
+
+The one-line comment fix below is **done**: `model.py:63` now reads
+"Placeholder for future CRM-style interaction tracking …", so no future
+contributor mistakes `Contact` for a legacy artefact to delete. The schema
+*reshape* (the CRM-specific fields) stays deferred until the CRM feature is
+scoped — that work reopens against `docs/product-vision.md` and gets its own
+`docs/plans/crm-contacts.md` + `docs/adr/0011-crm-contact-model.md` when picked
+up, exactly as the deliverables below describe.
 
 Originally scoped as "delete the legacy `Contact` table". That was based on a misreading of the model — see the amendment on ADR 0001. **`Contact` is a deliberate placeholder for future CRM-style interaction tracking** (recording conversations, outreach, notes against providers / facilities), not a legacy artefact to remove.
 
@@ -157,9 +185,19 @@ This WS is to **commit to a trigger**, not to add Alembic now. The output is a s
 
 ### WS8 — Fix: pin the Dockerfile base image and dependencies (S)
 
-**Status:** Open. Source: ADR 0008 §Consequences.
+**Status:** Shipped (2026-06-17). Source: ADR 0008 §Consequences.
 
-`Dockerfile:1` is `FROM python` — no tag. `requirements.txt` is bare names (no `==` pins). Build cache hides this most of the time; a cache miss could pick up an incompatible Python or library version silently.
+Both pins are now in place: `Dockerfile:1` is `FROM python:3.12-slim` and
+`requirements.txt` carries explicit `==` versions (Flask, SQLAlchemy, psycopg2,
+matplotlib, …). The exit criterion below is met — the image build is
+reproducible. (The Dockerfile survived the AKS-deploy removal because it is
+still the local-dev / future-deploy build recipe, independent of the withdrawn
+k8s manifests.)
+
+The original debt: `Dockerfile:1` was `FROM python` — no tag — and
+`requirements.txt` was bare names (no `==` pins). Build cache hid this most of
+the time; a cache miss could pick up an incompatible Python or library version
+silently.
 
 **Deliverables:**
 
@@ -175,17 +213,24 @@ This WS is to **commit to a trigger**, not to add Alembic now. The output is a s
 
 ### WS9 — Fix: protect CSVs from line-ending corruption (XS)
 
-**Status:** Open. Source: ADR 0007 §Consequences, §Walk-back.
+**Status:** Addressed by a different mechanism (2026-06-17). Source: ADR 0007
+§Consequences, §Walk-back.
 
-`.gitattributes:2` is `* text=auto`. A Windows commit could re-line-end-normalise the 50 MB of checked-in CSVs and produce silently-broken imports.
+The corruption risk is closed, but via **LF-locking rather than `binary`**.
+`.gitattributes` now carries `*.csv text eol=lf`, which pins the checked-in CQC
+exports to LF on every platform — so a Windows commit can no longer
+re-normalise the 50 MB of CSVs. This was chosen over `*.csv binary` because it
+keeps the CSVs diffable (useful for reviewing the refresh PRs) while still
+guaranteeing stable line endings.
 
-**Deliverables:**
+Consequently the original exit criterion is intentionally **not** met:
+`git check-attr text *.csv` returns `text: set` (not `unset`), because the file
+is still a text file — just one with a forced `eol`. The intent (no
+line-ending corruption) is satisfied.
 
-- Add `*.csv binary` to `.gitattributes` (before the wildcard rule, so it wins).
+**Original deliverable (superseded):**
 
-**Exit criteria:**
-
-- `git check-attr text *.csv` returns `text: unset`.
+- ~~Add `*.csv binary` to `.gitattributes`.~~ → Used `*.csv text eol=lf` instead.
 
 ---
 
@@ -211,13 +256,13 @@ When all of these are true, this plan closes (`Status: Closed (YYYY-MM-DD)`) and
 
 - [x] WS1 — Closed by removal (2026-05-20); ADRs 0008/0009 Withdrawn.
 - [ ] WS2 — Prod-vs-`model.py` schema drift checked. *(Rescoped: now about local-dev Postgres drift since prod is gone — still relevant.)*
-- [ ] WS3 — `SECRET_KEY` no longer the placeholder.
+- [ ] WS3 — `SECRET_KEY` no longer the placeholder. *(Partial 2026-06-17: env-driven, but literal fallback + fail-loud still TODO.)*
 - [x] WS4 — Closed by removal (2026-05-20); no prod Postgres to rotate against.
 - [ ] WS5 — Either `google_login.py` deleted or auth wired and ADR'd.
-- [ ] WS6 — `Contact` class deleted, or explicitly deferred to WS7.
+- [x] WS6 — Misleading comment corrected (2026-06-17); CRM reshape deferred to a future `crm-contacts` plan.
 - [ ] WS7 — Alembic trigger committed in ADR 0002 amendment.
-- [ ] WS8 — Dockerfile + requirements.txt pinned.
-- [ ] WS9 — `*.csv binary` in `.gitattributes`.
+- [x] WS8 — Dockerfile + requirements.txt pinned (2026-06-17).
+- [x] WS9 — Line-ending corruption closed (2026-06-17) via `*.csv text eol=lf` (not `binary`).
 - [x] WS10 — Closed by removal (2026-05-20); reopens at CRM phase with non-CSV-derived data.
 - [x] WS11 — Closed by removal (2026-05-20); reopens with the next deploy target.
 
