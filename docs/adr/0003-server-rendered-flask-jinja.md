@@ -38,6 +38,19 @@ There is a `google_login.py` module present in the tree but it imports a `app.te
 - **If a structured API consumer appears** — extract the queries currently feeding the templates into a thin Blueprint that returns JSON, then have the templates call it via fetch. Don't rewrite the whole app.
 - **If auth comes online (via `google_login.py` or otherwise)** — replace the hardcoded `SECRET_KEY`, add `flask_login` or equivalent. The current decision doesn't preclude this; it just hasn't happened.
 
+## Amendment (2026-06-17) — `SECRET_KEY` hardcoding resolved
+
+The Consequences bullet about `SECRET_KEY` being the literal
+`'your-secret-key-here'` no longer holds. `app.py` now reads `SECRET_KEY` from
+the env and **fails loud in production** (`FLASK_ENV=production` and no key →
+`RuntimeError`), while **generating an ephemeral key with a warning in
+development** (the default). `.env.example` documents the convention and
+`run.sh` writes a unique local key. This clears
+[`docs/plans/initial-debt-and-questions.md`](../plans/initial-debt-and-questions.md)
+WS3. The "replace the hardcoded `SECRET_KEY`" precondition under *Walk-back
+options* for auth is therefore already satisfied — auth (WS5) only needs to
+decide what gets gated, not how the key is sourced.
+
 ## Links
 
 - `app.py:24-54` (index), `:127-268` (providers), `:270-281` (statistics) — the three rendered routes.

@@ -2,6 +2,7 @@ import os
 import csv
 import io
 import base64
+import secrets
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, redirect, url_for, flash
 from model import db, Provider, Facility, Contact
@@ -14,8 +15,25 @@ from sqlalchemy import func, case
 load_dotenv()
 
 app = Flask(__name__)
-# Local-dev fallback only; any future deploy must supply SECRET_KEY via the env.
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')
+
+# SECRET_KEY: required from the env in production, generate-and-warn in dev.
+# FLASK_ENV gates the two paths (it defaults to development); the future
+# deploy story sets FLASK_ENV=production and supplies SECRET_KEY via a real
+# secret store. We read FLASK_ENV ourselves — Flask 3 no longer auto-reads it.
+_secret_key = os.getenv('SECRET_KEY')
+if not _secret_key:
+    if os.getenv('FLASK_ENV', 'development').lower() == 'production':
+        raise RuntimeError(
+            'SECRET_KEY must be set when FLASK_ENV=production — refusing to '
+            'start with an ephemeral key.'
+        )
+    _secret_key = secrets.token_hex(32)
+    app.logger.warning(
+        'SECRET_KEY not set; generated an ephemeral development key. Sessions '
+        'and flash messages will not survive a restart — set SECRET_KEY in '
+        '.env to silence this.'
+    )
+app.config['SECRET_KEY'] = _secret_key
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://darwinist:darwinist@localhost:5432/darwinist')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
