@@ -14,7 +14,7 @@ The three load-bearing goals, as agreed:
 
 **A. Build a DB of CQC-registered organisations and their facilities.** Largely in place: the `Provider` + `Facility` schema exists, the importers ingest CQC's bulk-download CSVs. PR #9 (in flight at the time of writing) lands the monthly cron that keeps the data fresh — once it merges, this row becomes "done".
 
-**B. Mini CRM for tracking contact and touchpoints within those organisations.** Not built yet. The `Contact` model in `model.py` was reserved for this (see [ADR 0001](adr/0001-provider-facility-domain-model.md) Amendment 2026-05-19), but the actual CRM needs a different shape than `Contact` carries today — see "Data shape" below.
+**B. Mini CRM for tracking contact and touchpoints within those organisations.** Started. The `Contact` placeholder was deleted and replaced by a purpose-built CRM tier ([ADR 0012](adr/0012-crm-person-interaction-user-model.md)); `Person` has shipped, `Interaction` + `User` are next (see [`plans/crm-phase1.md`](plans/crm-phase1.md) and "Data shape" below).
 
 **C. Automated outreach to those decision-makers, with async human input when needed.** Not built. The "async human input" pattern is centered on a **`Task` table**: every pending human decision (approve an outbound draft, decide the next move on a reply, re-auth a stale LinkedIn cookie, "no response after touch 5 — keep going or stop?") is a database row. The web UI is the authoritative decision surface; WhatsApp and email are notification channels that *push* pending tasks to the right human and *reflect* their decision back into the row. This generalises beyond outreach approval — any work-item that the automation can't resolve alone surfaces as a Task.
 
@@ -39,13 +39,13 @@ These are the design choices that scope the next 6–10 ADRs:
 ```
 Provider (organisation)             ← exists
   └─ Facility (registered location) ← exists
-  └─ Person                          ← NEW (introduced in ADR 0011)
+  └─ Person                          ← NEW (introduced in ADR 0012)
        (name, role, source: companies_house | phantombuster:<phantom> | manual,
         confidence, FK Provider)
-  └─ Interaction                     ← NEW (introduced in ADR 0011)
+  └─ Interaction                     ← NEW (introduced in ADR 0012)
        (when, channel, direction (out|in), summary, outcome,
         FK Person, FK User)
-  └─ User (us)                       ← NEW (introduced in ADR 0011)
+  └─ User (us)                       ← NEW (introduced in ADR 0012)
        (auth identity + per-user secrets:
         linkedin_session_cookie, phantombuster_api_key, whatsapp_phone_number)
   └─ phantom-run runtime model       ← TBD (Phase 3, ADR 0014)
@@ -60,7 +60,7 @@ Provider (organisation)             ← exists
 
 The exact field shapes (encryption posture for the per-user secrets, indexes, FK on-delete behaviour, …) are owned by the introducing ADRs. This sketch exists to make the conversation legible.
 
-**On the `Contact` placeholder.** [`docs/plans/initial-debt-and-questions.md`](plans/initial-debt-and-questions.md) WS6 already reserved ADR 0011 for reshaping the `Contact` model into something CRM-shaped. **The vision here upgrades that scope**: instead of reshaping one table, the CRM tier introduces three (`Person`, `Interaction`, `User`) and the existing `Contact` class is deleted. Phase 1 below restates this as the explicit Phase 1 deliverable; WS6 will fold into the Phase 1 plan when that's written.
+**On the `Contact` placeholder.** [`docs/plans/initial-debt-and-questions.md`](plans/initial-debt-and-questions.md) WS6 reserved an ADR for reshaping the `Contact` model into something CRM-shaped. **The vision upgraded that scope** and it was delivered in [ADR 0012](adr/0012-crm-person-interaction-user-model.md): instead of reshaping one table, the CRM tier introduces three (`Person`, `Interaction`, `User`) and the `Contact` class was deleted. WS6 has folded into [`plans/crm-phase1.md`](plans/crm-phase1.md) (WS1, shipped).
 
 ## Phased roadmap
 
@@ -69,7 +69,7 @@ We build the smallest meaningful slice first and add capability without invalida
 | Phase | Goal | ADRs introduced | Rough size |
 |---|---|---|---|
 | **0. Foundation** | Local dev works end-to-end. CI runs integration tests against fixture data in a Postgres service container. PR #9 (CSV cron) merges. | — *(code only)* | ~1 session |
-| **1. Smallest CRM loop** | Log in, see a Provider, list known People (manually entered), log one Interaction against a Person. Folds WS6 from `initial-debt-and-questions.md` into this phase. | 0011 (Person + Interaction + User), 0012 (app auth) | ~2 sessions |
+| **1. Smallest CRM loop** | Log in, see a Provider, list known People (manually entered), log one Interaction against a Person. Folds WS6 from `initial-debt-and-questions.md` into this phase. Tracked in [`plans/crm-phase1.md`](plans/crm-phase1.md); `Person` shipped. | 0012 (Person + Interaction + User); app-auth ADR deferred (see ADR 0011) | ~2 sessions |
 | **2. Companies House enrichment** | Auto-populate `Person` rows for legally-registered directors of each provider. Manual entry still works alongside; conflict-resolution rules established when sources disagree. | 0013 (Companies House integration + source hierarchy) | ~1 session |
 | **3. Phantombuster identification** | Scrape LinkedIn for non-director influencers. Phantom-run runtime model. GDPR controller posture in place. **No outreach yet.** | 0014 (Phantombuster runtime + credit accounting), 0015 (GDPR posture), 0016 (LinkedIn account hygiene) | ~3-4 sessions (three ADRs + first real scrape + GDPR work) |
 | **4. First outreach channel** | Email approval-loop + email send. Locks in the channel-adapter + approval-loop abstractions. **The outreach-channel abstraction must be channel-agnostic from day one** — designed so Phase 5's LinkedIn-DM channel is an addition, not a rewrite. ADR 0017 also introduces the `Task` entity (see Data shape) — Tasks are the source of truth for any pending human decision; email/WhatsApp/web are notification views. | 0017 (Task entity + approval-loop state machine), 0018 (outreach channels — channel-agnostic) | ~2 sessions |

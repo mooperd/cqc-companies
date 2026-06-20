@@ -5,7 +5,7 @@ import base64
 import secrets
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, redirect, url_for, flash
-from model import db, Provider, Facility, Contact
+from model import db, Provider, Facility
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt

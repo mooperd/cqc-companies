@@ -21,23 +21,25 @@ the only source.
 
 - **ADR 0013 Accepted** (currently Proposed — confirm the Companies-House-first
   choice and the conflict-resolution rule before building).
-- **Phase 1 landed**: the `Person` entity must exist. This plan is *blocked* on
-  the Phase-1 CRM ADR + plan (Person / Interaction / User), which are not yet
-  written. Until `Person` exists there is nothing to seed.
+- **`Person` entity exists**: ✓ landed via
+  [ADR 0012](../adr/0012-crm-person-interaction-user-model.md) /
+  [`crm-phase1.md`](crm-phase1.md) WS1 (2026-06-20). `Person` carries the
+  `source`/`confidence`/appointment-date fields this plan's mapper targets, so
+  WS1–WS4 are no longer blocked.
 - A Companies House API key (free; register at
   <https://developer.company-information.service.gov.uk/>). Stored as a secret,
   never committed.
 
 ## Where things stand (2026-06-20)
 
-Only the **groundwork** is done — everything that doesn't depend on the
-not-yet-existing `Person` entity:
+Groundwork done; the `Person` blocker is now cleared:
 
 - **WS0 — persist the CH number: Shipped.** `Provider.companies_house_number`
   (nullable, indexed) is populated in `enrich_locations.py` from the
   `Locations.csv` column. Verified against a throwaway local Postgres: 25,514 of
   36,982 providers (~69%) carry a CH number after a full round-trip.
-- **WS1–WS4: Blocked** on Phase 1 (`Person`). Not started.
+- **WS1–WS4: Open** (unblocked 2026-06-20 — `Person` now exists via ADR 0012).
+  Not started; next step is the Companies House API client (WS1).
 
 ## Workstreams
 
@@ -56,7 +58,7 @@ that have one (verified: 25,514 / 36,982).
 
 ### WS1 — Companies House API client
 
-**Status:** Blocked on Phase 1.
+**Status:** Open (unblocked 2026-06-20 — `Person` exists).
 
 A thin client over the Companies House public API. Given a company number,
 fetch the officers list (`GET /company/{number}/officers`), returning active
@@ -74,7 +76,7 @@ API; resignation dates correctly distinguish active from past directors.
 
 ### WS2 — Map officers to `Person` rows
 
-**Status:** Blocked on Phase 1.
+**Status:** Open (unblocked 2026-06-20 — `Person` exists).
 
 Transform Companies House officers into `Person` rows against the provider,
 setting `source = companies_house`, a confidence value, and role + appointment
@@ -89,7 +91,7 @@ rows with correct source/role/date fields.
 
 ### WS3 — Source-hierarchy merge
 
-**Status:** Blocked on Phase 1.
+**Status:** Open (unblocked 2026-06-20 — `Person` exists).
 
 Implement the conflict-resolution rule from [ADR 0013](../adr/0013-companies-house-source.md)
 §3: manual overrides all; Companies House authoritative for director identity +
@@ -104,7 +106,7 @@ and does not resurrect it from a stale lower-confidence source.
 
 ### WS4 — Enrichment entry point + cadence
 
-**Status:** Blocked on Phase 1.
+**Status:** Open (unblocked 2026-06-20 — `Person` exists).
 
 A command (mirroring the `cqc_refresh` CLI shape) that walks providers with a CH
 number and runs WS1→WS3. Decide refresh cadence (likely: piggy-back the monthly
@@ -123,7 +125,7 @@ a CH number.
 When all of these are true, this plan closes:
 
 - [x] WS0 — CH number persisted on `Provider`.
-- [ ] WS1–WS4 shipped (all blocked on Phase 1's `Person` entity).
+- [ ] WS1–WS4 shipped (unblocked — `Person` exists; not yet started).
 - [ ] Director `Person` rows seeded from Companies House for CH-registered
       providers, round-tripping through a local Postgres.
 - [ ] The source-hierarchy rule (ADR 0013 §3) is exercised and holds on re-run.
@@ -136,5 +138,5 @@ When all of these are true, this plan closes:
 - [`docs/product-vision.md`](../product-vision.md) — Phase 2 in the roadmap.
 - [ADR 0005 — Two-stage CSV ingest](../adr/0005-two-stage-csv-ingest.md) — the
   importer WS0 extended.
-- **Blocking dependency:** the Phase-1 `Person` / `Interaction` / `User` ADR +
-  plan (not yet written).
+- [ADR 0012 — CRM data model](../adr/0012-crm-person-interaction-user-model.md)
+  + [`crm-phase1.md`](crm-phase1.md) — landed `Person`, the seed target for this plan.

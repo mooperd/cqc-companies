@@ -21,6 +21,7 @@ These first ten ADRs were reverse-engineered from the codebase as of `2fe0977` (
 | 0009 | [In-cluster PostgreSQL on a `managed-csi` PVC](0009-in-cluster-postgres.md) | Withdrawn 2026-05-20 |
 | 0010 | [Hardcoded specialism / service-type filter taxonomy](0010-hardcoded-filter-taxonomy.md) | Accepted 2025-08-29 |
 | 0011 | [Defer authentication; remove the unwired `google_login.py`](0011-defer-authentication.md) | Accepted 2026-06-17 |
+| 0012 | [CRM data model: Person, Interaction, User (replacing Contact)](0012-crm-person-interaction-user-model.md) | Accepted 2026-06-20 |
 | 0013 | [Companies House as the first director-identification source](0013-companies-house-source.md) | Proposed |
 
 ## Format
