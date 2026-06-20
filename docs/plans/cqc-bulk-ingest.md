@@ -1,6 +1,6 @@
 # Plan — Automate CSV refresh from CQC bulk monthly downloads
 
-**Status:** Active.
+**Status:** Closed (2026-06-20).
 
 ## Goal
 
@@ -12,15 +12,32 @@ Implement the refresh mechanism committed to in [ADR 0007 Amendment (2026-05-19)
 - Spike `cqc-source-selection.md` Resolved — three named URLs, no auth, schema mapping understood.
 - PR-checks workflow from PR #7 merged (provides `smoke` + `actionlint` against the new workflow file).
 
-## Where things stand (2026-05-19)
+## Where things stand (2026-06-20)
 
-WS1–WS7 are the natural implementation phases. None started yet beyond the ADR amendment.
+**Fully shipped and closed.** The whole pipeline landed in `cqc_refresh.py`
+(stdlib-only) with the cron workflow at `.github/workflows/cqc-refresh.yml`, and
+the mechanism has run for real: the cron opened a refresh PR that was reviewed
+and merged to `main` (commit `0b4eea8`, *data: refresh CSVs from CQC monthly
+bulk export*). All five phase-exit criteria are met (see bottom of file); the
+round-trip criterion was verified on 2026-06-20 by importing the regenerated
+`output.csv` + `Locations.csv` into a throwaway local Postgres — both stages
+clean (100% match rate, 0 not-found), and the WS4 transforms populated sensibly
+(34,678 facilities with overall ratings, 56,810 with `service_types`).
+
+Two deviations from the plan as originally written, both deliberate and
+self-evident in the code:
+
+- **WS4 ratings transform** shipped as `pivot_ratings_to_wide()` +
+  `merge_ratings_into_locations()` rather than a single `map_ratings_ods()`.
+- **WS5 PR creation** lives in the workflow YAML (`gh pr create`/`gh pr edit`
+  against one stable bot-owned `data/refresh` branch), not a `diff_and_pr()`
+  Python function. The diff/no-op decision is in `_cmd_refresh`.
 
 ## Workstreams
 
 ### WS1 — URL discovery (S)
 
-**Status:** Open.
+**Status:** Shipped — `discover_urls()` (`cqc_refresh.py:111`).
 
 Scrape `https://www.cqc.org.uk/about-us/transparency/using-cqc-data` for the three current month's URLs. Return a `{kind: url}` dict for `{directory_csv, hsca_ods, ratings_ods}`. Pure HTTP + regex/BeautifulSoup; no auth.
 
@@ -30,7 +47,7 @@ Scrape `https://www.cqc.org.uk/about-us/transparency/using-cqc-data` for the thr
 
 ### WS2 — Streaming ODS parser (M)
 
-**Status:** Open.
+**Status:** Shipped — `stream_ods()` (`cqc_refresh.py:149`).
 
 Productionised version of `/tmp/probe-ods-headers.py` from the spike. Reads all rows from a named sheet inside an `.ods` (zip-of-OpenDocument-XML) using `ElementTree.iterparse` on the embedded `content.xml`. Yields dicts keyed by header. Must correctly handle `number-columns-repeated` (sparse-cell encoding) and `<text:p>` paragraph-wrapped values.
 
@@ -42,7 +59,7 @@ Productionised version of `/tmp/probe-ods-headers.py` from the spike. Reads all 
 
 ### WS3 — ETag-based change detection (S)
 
-**Status:** Open.
+**Status:** Shipped — `load_state`/`save_state`/`head_with_validators` (`cqc_refresh.py:220`–`242`); state file at `data/cqc-refresh-state.json`.
 
 State stored as a single committed JSON file at `data/cqc-refresh-state.json` with the shape:
 
@@ -67,7 +84,7 @@ Committed JSON chosen over GH Actions cache (opaque, evicts) or PR-body embeddin
 
 ### WS4 — Schema mapping (L)
 
-**Status:** Open.
+**Status:** Shipped — `map_directory_csv()` (`:349`), `map_hsca_ods()` (`:396`), `pivot_ratings_to_wide()` (`:460`) + `merge_ratings_into_locations()` (`:491`); address split in `_split_collapsed_address()` (`:325`), one-hot flatten in `_make_one_hot_flattener()` (`:375`). Round-trip verified 2026-06-20 (see "Where things stand").
 
 Three transforms required to land the bulk-file data in the existing CSV shape (so the importers don't need to change in this PR — they keep reading the same column names they do today).
 
@@ -85,7 +102,7 @@ The "Address" splitting is the highest-risk transform — CQC's collapsed format
 
 ### WS5 — Diff detection + PR creation (M)
 
-**Status:** Open.
+**Status:** Shipped — diff/no-op logic in `_cmd_refresh` (`cqc_refresh.py:554`); PR creation lives in `.github/workflows/cqc-refresh.yml` (`gh pr create`/`gh pr edit` on one stable `data/refresh` branch) rather than a `diff_and_pr()` function.
 
 After the mappers run, compare regenerated CSVs against the committed ones:
 
@@ -100,7 +117,7 @@ PR opened via `gh pr create` using `GITHUB_TOKEN`. Branch naming: `data/refresh-
 
 ### WS6 — Workflow YAML (S)
 
-**Status:** Open.
+**Status:** Shipped — `.github/workflows/cqc-refresh.yml` (cron `17 4 * * *` + `workflow_dispatch`; `CQC_PRIMARY_KEY` sanity check at `cqc_refresh.py:652`).
 
 `.github/workflows/cqc-refresh.yml`:
 
@@ -115,7 +132,7 @@ PR opened via `gh pr create` using `GITHUB_TOKEN`. Branch naming: `data/refresh-
 
 ### WS7 — Local CLI for development (S)
 
-**Status:** Open.
+**Status:** Shipped — `build_parser()` (`cqc_refresh.py:625`) with `discover`/`check`/`refresh` subcommands (`refresh --dry-run` supported).
 
 `python -m cqc_refresh` exposes the same pipeline locally so we don't have to push-and-wait to iterate on the mappers. Subcommands:
 
@@ -130,13 +147,13 @@ PR opened via `gh pr create` using `GITHUB_TOKEN`. Branch naming: `data/refresh-
 
 ## Phase exit criteria
 
-When all of these are true, this plan closes (`Status: Closed (YYYY-MM-DD)`):
+All true as of 2026-06-20 — plan Closed:
 
-- [ ] WS1–WS7 deliverables shipped on this branch.
-- [ ] A real refresh PR has been opened by the workflow (against the feature branch during development) and reviewed.
-- [ ] The regenerated CSVs round-trip through the existing importers against a local Postgres.
-- [ ] PR #7 has merged so the new workflow gets PR-time `actionlint` + `smoke` checks.
-- [ ] ADR 0007's amendment-walk-back triggers are unmodified by anything in this plan (sanity check on scope creep).
+- [x] WS1–WS7 deliverables shipped (in `cqc_refresh.py` + `.github/workflows/cqc-refresh.yml`).
+- [x] A real refresh PR has been opened by the workflow, reviewed, and merged to `main` (commit `0b4eea8`).
+- [x] The regenerated CSVs round-trip through the existing importers against a local Postgres — verified 2026-06-20 (both stages 100% match rate, 0 not-found; WS4 ratings/service-type columns populated).
+- [x] PR #7 has merged (2026-05-19) so the new workflow gets PR-time `actionlint` + `smoke` checks.
+- [x] ADR 0007's amendment-walk-back triggers are unmodified by anything in this plan.
 
 ## References
 
