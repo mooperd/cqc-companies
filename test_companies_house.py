@@ -108,10 +108,26 @@ def test_fetch_officers_paginates():
     print("OK — fetch_officers: pagination + active_only filter")
 
 
-def test_resolve_api_key_missing():
+def _clear_ch_env():
+    """Remove every Companies House env var and return them for restoration."""
     import os
 
-    saved = os.environ.pop(ch.API_KEY_ENV, None)
+    names = [ch.ENV_VAR, ch.API_KEY_ENV, *ch._KEY_VARS.values()]
+    return {name: os.environ.pop(name, None) for name in names}
+
+
+def _restore_env(saved):
+    import os
+
+    for name, value in saved.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+
+def test_resolve_api_key_missing():
+    saved = _clear_ch_env()
     try:
         try:
             ch.resolve_api_key(None)
@@ -120,9 +136,46 @@ def test_resolve_api_key_missing():
             pass
         assert ch.resolve_api_key("explicit-key") == "explicit-key"
     finally:
-        if saved is not None:
-            os.environ[ch.API_KEY_ENV] = saved
+        _restore_env(saved)
     print("OK — resolve_api_key: raises when missing, honours explicit key")
+
+
+def test_env_selects_key_and_base():
+    import os
+
+    saved = _clear_ch_env()
+    try:
+        # Default env is live.
+        assert ch.resolve_env() == "live"
+        assert ch._api_base() == ch.LIVE_API_BASE
+
+        # test env selects the sandbox base and the test-specific key var;
+        # "sandbox" is accepted as an alias for "test".
+        os.environ[ch.ENV_VAR] = "test"
+        os.environ["COMPANIES_HOUSE_TEST_KEY"] = "test-key"
+        os.environ["COMPANIES_HOUSE_LIVE_KEY"] = "live-key"
+        assert ch.resolve_env() == "test"
+        assert ch._api_base() == ch.SANDBOX_API_BASE
+        assert ch.resolve_api_key() == "test-key"
+
+        os.environ[ch.ENV_VAR] = "live"
+        assert ch.resolve_api_key() == "live-key"
+
+        # Generic fallback used when the env-specific key is absent.
+        del os.environ["COMPANIES_HOUSE_LIVE_KEY"]
+        os.environ[ch.API_KEY_ENV] = "fallback-key"
+        assert ch.resolve_api_key() == "fallback-key"
+
+        # An unknown env value is rejected loudly.
+        os.environ[ch.ENV_VAR] = "staging"
+        try:
+            ch.resolve_env()
+            assert False, "unknown COMPANIES_HOUSE_ENV must raise"
+        except RuntimeError:
+            pass
+    finally:
+        _restore_env(saved)
+    print("OK — env switch selects matching key + base, rejects bad env")
 
 
 if __name__ == "__main__":
@@ -130,4 +183,5 @@ if __name__ == "__main__":
     test_parse_date()
     test_fetch_officers_paginates()
     test_resolve_api_key_missing()
+    test_env_selects_key_and_base()
     print("\nAll Companies House offline tests passed.")

@@ -40,8 +40,10 @@ Groundwork done; the `Person` blocker is now cleared:
   36,982 providers (~69%) carry a CH number after a full round-trip.
 - **WS1 — API client: Shipped** (2026-06-20). `companies_house.py`
   (`fetch_officers`) — stdlib-only, paginating, with the active/resigned
-  distinction; offline tests pass. Live-API check pending a
-  `COMPANIES_HOUSE_API_KEY`.
+  distinction; offline tests pass. Verified on the real CH API against the
+  **sandbox** (auth + fetch + parse round-trip). A `COMPANIES_HOUSE_ENV`
+  switch selects live/test key + matching base. **Real-data live check still
+  pending a Live key** — sandbox companies are synthetic.
 - **WS2–WS4: Open** (unblocked — `Person` exists via ADR 0012). Next step is
   WS2 (map officers → `Person` rows).
 
@@ -62,29 +64,39 @@ that have one (verified: 25,514 / 36,982).
 
 ### WS1 — Companies House API client
 
-**Status:** Shipped (2026-06-20) — offline-verified; live-API check pending a key.
+**Status:** Shipped (2026-06-20) — sandbox-verified on the wire; real-data live
+check pending a Live key.
 
 `companies_house.py` — a stdlib-only client (matching `cqc_refresh.py`; no new
 `requirements.txt` dep). `fetch_officers(company_number, api_key=None,
 active_only=False) -> list[Officer]` follows pagination, parses each officer's
 name / role / `appointed_on` / `resigned_on` (real dates), and exposes
 `Officer.is_active` (`resigned_on is None`). HTTP Basic auth with the key as
-username; key read from `COMPANIES_HOUSE_API_KEY` and asserted present
-(`resolve_api_key`). Backs off on 429 (honours `Retry-After`); 401 → fail-loud,
-404 → `CompaniesHouseError`. CLI: `python -m companies_house officers <number>
-[--active-only]`. Wired into the CI import smoke check.
+username.
+
+Live and test keys can both live in `.env.local`; a single
+`COMPANIES_HOUSE_ENV` (`live` default | `test`) switch selects the key
+(`COMPANIES_HOUSE_LIVE_KEY` / `COMPANIES_HOUSE_TEST_KEY`, with a generic
+`COMPANIES_HOUSE_API_KEY` fallback) **and** the matching base URL — derived from
+the env so they can't mismatch (`resolve_env` / `resolve_api_key`). Backs off on
+429 (honours `Retry-After`); 401 → fail-loud, 404 → `CompaniesHouseError`. CLI:
+`python -m companies_house officers <number> [--active-only]` (logs the active
+env). Wired into the CI import smoke check.
 
 Role filtering (directors vs secretaries) is deliberately left to WS2 — this
 returns every officer so the active/resigned distinction stays visible.
 
-**Deliverables:** ✓ `companies_house.fetch_officers(...) -> list[Officer]`; env
-key asserted at startup; `test_companies_house.py` covering parsing, pagination,
-the active/resigned distinction, and the missing-key error.
+**Deliverables:** ✓ `companies_house.fetch_officers(...) -> list[Officer]`;
+env-switched key resolution asserted at startup; `test_companies_house.py`
+covering parsing, pagination, active/resigned, the env→key/base switch, and the
+missing-key error.
 
-**Exit:** offline tests pass (parsing + pagination + active-only). **Remaining:**
-the live-API check (fetch real company numbers, confirm resignation dates
-distinguish active vs past) needs a `COMPANIES_HOUSE_API_KEY` — run
-`COMPANIES_HOUSE_API_KEY=… python -m companies_house officers 02518546`.
+**Exit:** offline tests pass; client verified on the real CH API against the
+**sandbox** (`COMPANIES_HOUSE_ENV=test` — auth + fetch + parse round-trip).
+**Remaining:** the real-data check (fetch real company numbers, confirm
+resignation dates distinguish active vs past) needs a **Live** key — sandbox
+companies are synthetic. Run `COMPANIES_HOUSE_ENV=live python -m companies_house
+officers 02518546` once a `COMPANIES_HOUSE_LIVE_KEY` is in `.env.local`.
 
 ### WS2 — Map officers to `Person` rows
 

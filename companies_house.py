@@ -39,8 +39,19 @@ logger = logging.getLogger(__name__)
 
 # --- Constants ----------------------------------------------------------------
 
-API_BASE = "https://api.company-information.service.gov.uk"
+# A Companies House key is tied to ONE environment (a "Test" application key
+# works only against the sandbox, a "Live" key only against live), so we pick
+# the key AND its matching base URL from a single COMPANIES_HOUSE_ENV switch —
+# they can never be mismatched. Both keys can live in .env.local at once; flip
+# the switch to choose. Default is live.
+LIVE_API_BASE = "https://api.company-information.service.gov.uk"
+SANDBOX_API_BASE = "https://api-sandbox.company-information.service.gov.uk"
+ENV_VAR = "COMPANIES_HOUSE_ENV"  # "live" (default) | "test"
+# Generic fallback key, used for whichever env is selected if the env-specific
+# var below isn't set (handy for a minimal single-key setup).
 API_KEY_ENV = "COMPANIES_HOUSE_API_KEY"
+_BASES = {"live": LIVE_API_BASE, "test": SANDBOX_API_BASE}
+_KEY_VARS = {"live": "COMPANIES_HOUSE_LIVE_KEY", "test": "COMPANIES_HOUSE_TEST_KEY"}
 USER_AGENT = "cqc-companies-enrichment/1.0 (+https://github.com/mooperd/cqc-companies)"
 
 # Officers come paginated; 50 keeps round-trips low without large payloads.
@@ -100,15 +111,36 @@ def parse_officers_payload(payload: dict) -> list[Officer]:
 # --- HTTP ---------------------------------------------------------------------
 
 
+def resolve_env() -> str:
+    """The selected environment: "live" (default) or "test". Read at call time."""
+    raw = os.getenv(ENV_VAR, "live").strip().lower()
+    if raw in ("test", "sandbox"):
+        return "test"
+    if raw == "live":
+        return "live"
+    raise RuntimeError(f"{ENV_VAR} must be 'live' or 'test' (got {raw!r}).")
+
+
 def resolve_api_key(api_key: str | None = None) -> str:
-    """Return the explicit key, else the env key; raise if neither is set."""
-    key = api_key or os.getenv(API_KEY_ENV)
+    """Return the explicit key, else the env-specific key (with a generic
+    fallback). Raise if none is set."""
+    if api_key:
+        return api_key
+    env = resolve_env()
+    key = os.getenv(_KEY_VARS[env]) or os.getenv(API_KEY_ENV)
     if not key:
         raise RuntimeError(
-            f"Companies House API key missing: set {API_KEY_ENV} (free key from "
-            "https://developer.company-information.service.gov.uk/)."
+            f"Companies House API key missing for env '{env}': set "
+            f"{_KEY_VARS[env]} (or {API_KEY_ENV}). Free key from "
+            "https://developer.company-information.service.gov.uk/."
         )
     return key
+
+
+def _api_base() -> str:
+    # Derived from the selected env so key and base can't mismatch. Read at
+    # call time so the CLI's dotenv load is already in effect.
+    return _BASES[resolve_env()]
 
 
 def _auth_header(api_key: str) -> str:
@@ -123,7 +155,7 @@ def _get_json(path: str, api_key: str) -> dict:
     Retries on 429 honouring Retry-After. Raises CompaniesHouseError on 404
     (unknown company) and RuntimeError on 401 (bad key).
     """
-    url = f"{API_BASE}{path}"
+    url = f"{_api_base()}{path}"
     req = urllib.request.Request(url)
     req.add_header("Authorization", _auth_header(api_key))
     req.add_header("User-Agent", USER_AGENT)
@@ -204,6 +236,7 @@ def _officer_to_dict(officer: Officer) -> dict:
 
 
 def _cmd_officers(args: argparse.Namespace) -> int:
+    logger.info("env=%s (%s)", resolve_env(), _api_base())
     officers = fetch_officers(args.company_number, active_only=args.active_only)
     print(json.dumps([_officer_to_dict(o) for o in officers], indent=2))
     logger.info(
@@ -234,6 +267,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    # Load local env so the CLI picks up COMPANIES_HOUSE_API_KEY without the
+    # caller exporting it. .env.local (real secrets) overrides .env (dev
+    # defaults). Lazy import keeps the module itself stdlib-only, so the CI
+    # smoke check can `import companies_house` with no dependency installed.
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    load_dotenv(".env.local", override=True)
 
     handlers = {"officers": _cmd_officers}
     return handlers[args.cmd](args)
