@@ -155,7 +155,15 @@ def enrich_facilities(csv_file, session, total_rows):
                         print(f"ERROR: Failed to create provider {provider_name}: {e}")
                         session.rollback()
                         continue
-                
+
+                # Persist the Companies House number CQC gives us (seed for
+                # future director enrichment — ADR 0013). Authoritative from
+                # CQC, so overwrite; idempotent across a provider's locations.
+                if provider:
+                    ch_number = row.get('Provider Companies House Number', '').strip()
+                    if ch_number:
+                        provider.companies_house_number = ch_number
+
                 # Find or create facility
                 facility = facility_map.get(location_id)
                 if not facility and provider and location_name:

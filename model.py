@@ -6,6 +6,12 @@ class Provider(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False, index=True)
     cqc_provider_id = db.Column(db.String(100), index=True)
+    # Carried through from the CQC HSCA export (Locations.csv column
+    # "Provider Companies House Number"); the seed for future Companies
+    # House director enrichment — see docs/adr/0013-companies-house-source.md
+    # and docs/plans/companies-house-enrichment.md. Nullable: not every
+    # provider is a registered company (sole traders, NHS bodies, etc.).
+    companies_house_number = db.Column(db.String(20), index=True)
     website = db.Column(db.String(500))
     email_address = db.Column(db.String(255))
     phone_number = db.Column(db.String(50))
