@@ -128,8 +128,10 @@ jobs:
           git push --force -u origin "$BRANCH"
 
           if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
-            echo "PR already open for $BRANCH — updating body."
-            gh pr edit "$BRANCH" --body-file /tmp/pr-body.md
+            echo "PR already open for $BRANCH — updating title and body."
+            # Refresh the title too: the reused branch keeps one long-lived PR,
+            # so without this the title sticks at the date it was first opened.
+            gh pr edit "$BRANCH" --title "$TITLE" --body-file /tmp/pr-body.md
           else
             gh pr create --base "$BASE_REF" --head "$BRANCH" \
               --title "$TITLE" --body-file /tmp/pr-body.md
