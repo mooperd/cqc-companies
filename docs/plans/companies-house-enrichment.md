@@ -38,12 +38,12 @@ Groundwork done; the `Person` blocker is now cleared:
   (nullable, indexed) is populated in `enrich_locations.py` from the
   `Locations.csv` column. Verified against a throwaway local Postgres: 25,514 of
   36,982 providers (~69%) carry a CH number after a full round-trip.
-- **WS1 — API client: Shipped** (2026-06-20). `companies_house.py`
-  (`fetch_officers`) — stdlib-only, paginating, with the active/resigned
-  distinction; offline tests pass. Verified on the real CH API against the
-  **sandbox** (auth + fetch + parse round-trip). A `COMPANIES_HOUSE_ENV`
-  switch selects live/test key + matching base. **Real-data live check still
-  pending a Live key** — sandbox companies are synthetic.
+- **WS1 — API client: Shipped + live-verified** (2026-06-21).
+  `companies_house.py` (`fetch_officers`) — stdlib-only, paginating, with the
+  active/resigned distinction; offline tests pass. Verified against the **live**
+  CH API on three real companies (e.g. 02518546 Medacs: 37 officers, 3 active /
+  34 resigned; `--active-only` returns exactly the 3). A `COMPANIES_HOUSE_ENV`
+  switch selects live/test key + matching base.
 - **WS2–WS4: Open** (unblocked — `Person` exists via ADR 0012). Next step is
   WS2 (map officers → `Person` rows).
 
@@ -64,8 +64,7 @@ that have one (verified: 25,514 / 36,982).
 
 ### WS1 — Companies House API client
 
-**Status:** Shipped (2026-06-20) — sandbox-verified on the wire; real-data live
-check pending a Live key.
+**Status:** Shipped + live-verified (2026-06-21).
 
 `companies_house.py` — a stdlib-only client (matching `cqc_refresh.py`; no new
 `requirements.txt` dep). `fetch_officers(company_number, api_key=None,
@@ -91,12 +90,10 @@ env-switched key resolution asserted at startup; `test_companies_house.py`
 covering parsing, pagination, active/resigned, the env→key/base switch, and the
 missing-key error.
 
-**Exit:** offline tests pass; client verified on the real CH API against the
-**sandbox** (`COMPANIES_HOUSE_ENV=test` — auth + fetch + parse round-trip).
-**Remaining:** the real-data check (fetch real company numbers, confirm
-resignation dates distinguish active vs past) needs a **Live** key — sandbox
-companies are synthetic. Run `COMPANIES_HOUSE_ENV=live python -m companies_house
-officers 02518546` once a `COMPANIES_HOUSE_LIVE_KEY` is in `.env.local`.
+**Exit:** ✓ Offline tests pass. ✓ Live-verified (2026-06-21) on three real
+companies via `COMPANIES_HOUSE_ENV=live` — e.g. 02518546 (Medacs): 37 officers,
+3 active / 34 resigned with correct dates, and `--active-only` returns exactly
+the 3 active. The active/resigned distinction holds on real data.
 
 ### WS2 — Map officers to `Person` rows
 
@@ -149,8 +146,8 @@ a CH number.
 When all of these are true, this plan closes:
 
 - [x] WS0 — CH number persisted on `Provider`.
-- [x] WS1 — Companies House API client shipped (offline-verified; live check
-      pending a key).
+- [x] WS1 — Companies House API client shipped and **live-verified**
+      (2026-06-21) on real companies.
 - [ ] WS2–WS4 shipped (`Person` exists; not yet started).
 - [ ] Director `Person` rows seeded from Companies House for CH-registered
       providers, round-tripping through a local Postgres.

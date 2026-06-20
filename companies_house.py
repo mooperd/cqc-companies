@@ -173,9 +173,14 @@ def _get_json(path: str, api_key: str) -> dict:
                 time.sleep(delay)
                 continue
             if err.code == 401:
+                env = resolve_env()
                 raise RuntimeError(
-                    "Companies House rejected the API key (401). Check "
-                    f"{API_KEY_ENV}."
+                    f"Companies House rejected the API key (401) for env "
+                    f"'{env}'. A key is tied to one environment — confirm "
+                    f"{_KEY_VARS[env]} (or {API_KEY_ENV}) is a '{env}' "
+                    "application key, not the other environment's. (A 'Test' "
+                    "key works only against the sandbox; a 'Live' key only "
+                    "against live.)"
                 ) from err
             if err.code == 404:
                 raise CompaniesHouseError(f"not found: {path}") from err
