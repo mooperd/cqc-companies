@@ -60,6 +60,7 @@ jobs:
           import import_records
           import enrich_locations
           import cqc_refresh  # bulk-download pipeline; stdlib-only
+          import companies_house  # CH officers client; stdlib-only
 
           # Sanity-check the Flask app actually wired up.
           routes = sorted(r.rule for r in app.app.url_map.iter_rules())
@@ -72,4 +73,9 @@ jobs:
           parser = cqc_refresh.build_parser()
           assert parser.parse_args(['discover']).cmd == 'discover'
           print('cqc_refresh CLI parser OK')
+
+          # And companies_house's CLI.
+          ch_parser = companies_house.build_parser()
+          assert ch_parser.parse_args(['officers', '02518546']).cmd == 'officers'
+          print('companies_house CLI parser OK')
           PY

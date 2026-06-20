@@ -38,8 +38,12 @@ Groundwork done; the `Person` blocker is now cleared:
   (nullable, indexed) is populated in `enrich_locations.py` from the
   `Locations.csv` column. Verified against a throwaway local Postgres: 25,514 of
   36,982 providers (~69%) carry a CH number after a full round-trip.
-- **WS1–WS4: Open** (unblocked 2026-06-20 — `Person` now exists via ADR 0012).
-  Not started; next step is the Companies House API client (WS1).
+- **WS1 — API client: Shipped** (2026-06-20). `companies_house.py`
+  (`fetch_officers`) — stdlib-only, paginating, with the active/resigned
+  distinction; offline tests pass. Live-API check pending a
+  `COMPANIES_HOUSE_API_KEY`.
+- **WS2–WS4: Open** (unblocked — `Person` exists via ADR 0012). Next step is
+  WS2 (map officers → `Person` rows).
 
 ## Workstreams
 
@@ -58,21 +62,29 @@ that have one (verified: 25,514 / 36,982).
 
 ### WS1 — Companies House API client
 
-**Status:** Open (unblocked 2026-06-20 — `Person` exists).
+**Status:** Shipped (2026-06-20) — offline-verified; live-API check pending a key.
 
-A thin client over the Companies House public API. Given a company number,
-fetch the officers list (`GET /company/{number}/officers`), returning active
-directors with name, role, and appointment/resignation dates. Key-gated (free),
-no meaningful rate limit, but be polite (backoff on 429). Stdlib `urllib` or
-`requests` — match whatever the codebase settles on; keep it dependency-light
-like `cqc_refresh.py`.
+`companies_house.py` — a stdlib-only client (matching `cqc_refresh.py`; no new
+`requirements.txt` dep). `fetch_officers(company_number, api_key=None,
+active_only=False) -> list[Officer]` follows pagination, parses each officer's
+name / role / `appointed_on` / `resigned_on` (real dates), and exposes
+`Officer.is_active` (`resigned_on is None`). HTTP Basic auth with the key as
+username; key read from `COMPANIES_HOUSE_API_KEY` and asserted present
+(`resolve_api_key`). Backs off on 429 (honours `Retry-After`); 401 → fail-loud,
+404 → `CompaniesHouseError`. CLI: `python -m companies_house officers <number>
+[--active-only]`. Wired into the CI import smoke check.
 
-**Deliverables:** a `companies_house` module with
-`fetch_officers(company_number) -> list[Officer]`; the API key read from the
-environment, asserted present at startup.
+Role filtering (directors vs secretaries) is deliberately left to WS2 — this
+returns every officer so the active/resigned distinction stays visible.
 
-**Exit:** fetches officers for a handful of known company numbers from the live
-API; resignation dates correctly distinguish active from past directors.
+**Deliverables:** ✓ `companies_house.fetch_officers(...) -> list[Officer]`; env
+key asserted at startup; `test_companies_house.py` covering parsing, pagination,
+the active/resigned distinction, and the missing-key error.
+
+**Exit:** offline tests pass (parsing + pagination + active-only). **Remaining:**
+the live-API check (fetch real company numbers, confirm resignation dates
+distinguish active vs past) needs a `COMPANIES_HOUSE_API_KEY` — run
+`COMPANIES_HOUSE_API_KEY=… python -m companies_house officers 02518546`.
 
 ### WS2 — Map officers to `Person` rows
 
@@ -125,7 +137,9 @@ a CH number.
 When all of these are true, this plan closes:
 
 - [x] WS0 — CH number persisted on `Provider`.
-- [ ] WS1–WS4 shipped (unblocked — `Person` exists; not yet started).
+- [x] WS1 — Companies House API client shipped (offline-verified; live check
+      pending a key).
+- [ ] WS2–WS4 shipped (`Person` exists; not yet started).
 - [ ] Director `Person` rows seeded from Companies House for CH-registered
       providers, round-tripping through a local Postgres.
 - [ ] The source-hierarchy rule (ADR 0013 §3) is exercised and holds on re-run.
