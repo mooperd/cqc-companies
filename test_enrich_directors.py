@@ -149,7 +149,14 @@ def test_providers_with_ch_number_filters():
         names = sorted(p.name for p in ed.providers_with_ch_number(s))
         assert names == ["Also CH", "Has CH"], names
         assert len(ed.providers_with_ch_number(s, limit=1)) == 1
-    print("OK — providers_with_ch_number: only providers with a CH number, honours limit")
+
+        # skip_enriched excludes providers that already have a CH-sourced person.
+        has_ch = next(p for p in s.query(Provider) if p.name == "Has CH")
+        s.add(Person(name="DOE, Jane", source="companies_house", provider_id=has_ch.id))
+        s.commit()
+        remaining = [p.name for p in ed.providers_with_ch_number(s, skip_enriched=True)]
+        assert remaining == ["Also CH"], remaining
+    print("OK — providers_with_ch_number: CH-only, honours limit + skip_enriched")
 
 
 if __name__ == "__main__":

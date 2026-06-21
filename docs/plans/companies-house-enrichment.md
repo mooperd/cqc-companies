@@ -147,14 +147,19 @@ and does not resurrect it from a stale lower-confidence source.
 
 **Status:** Shipped (2026-06-21) — CLI done; scheduled cadence not yet wired.
 
-`python enrich_directors.py [--limit N] [--sleep S] [--dry-run]` (the CLI lives
+`python enrich_directors.py [--limit N] [--sleep S] [--dry-run] [--skip-enriched]`
+(the CLI lives
 in `enrich_directors.py` alongside the WS2 mapper, mirroring
 `enrich_locations.py`). `providers_with_ch_number` selects providers carrying a
 CH number; `enrich_all` walks them, calling `fetch_officers` (WS1) +
 `sync_provider_directors` (WS2) per provider, committing every 50, pacing
 requests (`--sleep`, default 0.5s) under the ~600-req/5-min limit with the
 client's 429 backoff as the safety net. A 404 skips that provider (counted
-`not_found`); a bad key aborts. `--dry-run` rolls back.
+`not_found`); a bad key aborts. `--dry-run` rolls back. `--skip-enriched`
+excludes providers that already have CH-sourced people, so an interrupted run
+resumes rather than restarting (batched commits every 50 make completed work
+durable). Measured throughput: ~0.62s/provider, so a full ~25.5k-provider walk
+is ~4.4h with ~220k director rows.
 
 **Deliverables:** ✓ `enrich_directors.py` CLI (`enrich_all`,
 `providers_with_ch_number`, `build_parser`/`main`); `providers_with_ch_number`

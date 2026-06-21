@@ -28,7 +28,7 @@ import sys
 import time
 from collections.abc import Iterable
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, exists
 from sqlalchemy.orm import Session
 
 import companies_house as ch
@@ -119,8 +119,13 @@ _DEFAULT_SLEEP = 0.5
 _COMMIT_EVERY = 50
 
 
-def providers_with_ch_number(session, limit: int | None = None):
-    """Providers that carry a Companies House number, ordered by id."""
+def providers_with_ch_number(session, limit: int | None = None, skip_enriched: bool = False):
+    """Providers that carry a Companies House number, ordered by id.
+
+    With `skip_enriched=True`, exclude providers that already have a
+    `companies_house`-sourced Person — so an interrupted run resumes where it
+    left off instead of redoing completed providers.
+    """
     query = (
         session.query(Provider)
         .filter(
@@ -129,18 +134,28 @@ def providers_with_ch_number(session, limit: int | None = None):
         )
         .order_by(Provider.id)
     )
+    if skip_enriched:
+        already = exists().where(
+            (Person.provider_id == Provider.id) & (Person.source == SOURCE)
+        )
+        query = query.filter(~already)
     if limit is not None:
         query = query.limit(limit)
     return query.all()
 
 
 def enrich_all(
-    session, limit: int | None = None, sleep: float = _DEFAULT_SLEEP, dry_run: bool = False
+    session,
+    limit: int | None = None,
+    sleep: float = _DEFAULT_SLEEP,
+    dry_run: bool = False,
+    skip_enriched: bool = False,
 ) -> dict[str, int]:
     """Walk providers with a CH number, fetch officers (WS1) and sync director
     Person rows (WS2) for each. Commits in batches; a 404 skips that provider, a
-    bad key (RuntimeError) aborts. Returns aggregate counts."""
-    providers = providers_with_ch_number(session, limit)
+    bad key (RuntimeError) aborts. With `skip_enriched`, providers already having
+    CH-sourced people are skipped (resume an interrupted run). Returns counts."""
+    providers = providers_with_ch_number(session, limit, skip_enriched=skip_enriched)
     logger.info("enriching %d providers (env=%s)", len(providers), ch.resolve_env())
 
     totals = {"providers": 0, "created": 0, "updated": 0, "not_found": 0}
@@ -184,6 +199,10 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"seconds between API calls (default {_DEFAULT_SLEEP}; rate-limit pacing)",
     )
     p.add_argument("--dry-run", action="store_true", help="fetch + sync, then roll back")
+    p.add_argument(
+        "--skip-enriched", action="store_true",
+        help="skip providers that already have CH-sourced people (resume a run)",
+    )
     return p
 
 
@@ -205,7 +224,11 @@ def main(argv: list[str] | None = None) -> int:
 
     with Session(engine) as session:
         totals = enrich_all(
-            session, limit=args.limit, sleep=args.sleep, dry_run=args.dry_run
+            session,
+            limit=args.limit,
+            sleep=args.sleep,
+            dry_run=args.dry_run,
+            skip_enriched=args.skip_enriched,
         )
     logger.info("done: %s", totals)
     return 0
