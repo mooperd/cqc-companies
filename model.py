@@ -20,7 +20,16 @@ class Provider(db.Model):
     town_city = db.Column(db.String(255))
     county = db.Column(db.String(255))
     postcode = db.Column(db.String(20))
-    
+
+    # Lifecycle + freshness (ADR 0015). active=False is a soft-delete for a
+    # provider dropped from the CQC export (rows retained, queries filter on it).
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    removed_at = db.Column(db.DateTime)
+    # Companies House enrichment freshness: when we last successfully polled, and
+    # the watermark (latest officer/PSC filing seen) for the filing-history check.
+    ch_enriched_at = db.Column(db.DateTime)
+    ch_filing_watermark = db.Column(db.String(50))
+
     facilities = db.relationship('Facility', backref='provider', lazy=True)
     roles = db.relationship('Role', backref='provider', lazy=True)
 
@@ -107,3 +116,29 @@ class Role(db.Model):
     end_date = db.Column(db.Date)
     # PSC natures_of_control summary (ownership %, voting rights); null for officers.
     control_nature = db.Column(db.Text)
+
+
+# A queryable materialization of the git-committed change-event files (ADR 0015).
+# The files under data/changes/ are canonical; this table is a projection rebuilt
+# by replaying them, and the substrate outreach Tasks key off (Phase 4).
+# Immutable: an observation, not a task.
+class ChangeEvent(db.Model):
+    __tablename__ = 'change_events'
+    id = db.Column(db.Integer, primary_key=True)
+    observed_at = db.Column(db.DateTime)   # when we detected it (the file's run)
+    effective_date = db.Column(db.Date)    # source date of the change, if known
+    source = db.Column(db.String(50), nullable=False)  # cqc | companies_house:officers | companies_house:psc
+    change_type = db.Column(db.String(50), nullable=False)  # provider_added|removed|updated | location_* | role_appointed|ended|changed
+    provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'), nullable=False, index=True)
+    person_id = db.Column(db.Integer, db.ForeignKey('person.id'), index=True)
+    role_id = db.Column(db.Integer, db.ForeignKey('role.id'))
+    details = db.Column(db.JSON)  # field-level changes / role info
+
+
+# Ledger of which change-event files have been applied to this DB projection
+# (ADR 0015), so apply-latest is idempotent and resumable.
+class AppliedEventFile(db.Model):
+    __tablename__ = 'applied_event_file'
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    applied_at = db.Column(db.DateTime)

@@ -63,6 +63,11 @@ jobs:
           import companies_house  # CH officers + PSC client; stdlib-only
           import enrich_people  # CH officers + PSC -> Person/Role (WS2/WS4)
 
+          # Change-event model (ADR 0015) wired up.
+          assert hasattr(model, 'ChangeEvent') and hasattr(model, 'AppliedEventFile')
+          assert 'active' in model.Provider.__table__.c
+          print('ChangeEvent + provider lifecycle columns present')
+
           # Sanity-check the Flask app actually wired up.
           routes = sorted(r.rule for r in app.app.url_map.iter_rules())
           expected = {'/', '/healthz', '/import', '/providers', '/statistics'}
