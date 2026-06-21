@@ -58,7 +58,45 @@ def test_parse_officers_payload():
 
     assert secretary.role == "secretary"
     assert secretary.is_active is True
-    print("OK — parse_officers_payload: roles, dates, active/resigned distinction")
+
+    # DOB + nationality (the correlation signals) parse when present.
+    with_dob = ch.parse_officers_payload({"items": [{
+        "name": "KHAN, Asam Tazeem", "officer_role": "director",
+        "appointed_on": "2017-08-01",
+        "date_of_birth": {"month": 2, "year": 1982}, "nationality": "British",
+    }]})[0]
+    assert with_dob.dob_year == 1982 and with_dob.dob_month == 2
+    assert with_dob.nationality == "British"
+    print("OK — parse_officers_payload: roles, dates, DOB, active/resigned distinction")
+
+
+def test_parse_psc_payload():
+    page = {"items": [
+        {
+            "name": "Mr Asam Khan",
+            "kind": "individual-person-with-significant-control",
+            "natures_of_control": ["ownership-of-shares-25-to-50-percent",
+                                   "voting-rights-25-to-50-percent"],
+            "notified_on": "2017-08-01",
+            "date_of_birth": {"month": 2, "year": 1982}, "nationality": "British",
+        },
+        {
+            "name": "Rss Global Limited",
+            "kind": "corporate-entity-person-with-significant-control",
+            "natures_of_control": ["ownership-of-shares-75-to-100-percent"],
+            "notified_on": "2023-03-03", "ceased_on": "2023-03-03",
+        },
+    ]}
+    pscs = ch.parse_psc_payload(page)
+    assert len(pscs) == 2
+    asam, rss = pscs
+    assert asam.kind == "individual-person-with-significant-control"
+    assert asam.natures_of_control == ("ownership-of-shares-25-to-50-percent",
+                                       "voting-rights-25-to-50-percent")
+    assert asam.dob_year == 1982 and asam.dob_month == 2 and asam.nationality == "British"
+    assert asam.is_active is True
+    assert rss.ceased_on == dt.date(2023, 3, 3) and rss.is_active is False
+    print("OK — parse_psc_payload: kind, natures, DOB, active/ceased distinction")
 
 
 def test_parse_date():
@@ -180,6 +218,7 @@ def test_env_selects_key_and_base():
 
 if __name__ == "__main__":
     test_parse_officers_payload()
+    test_parse_psc_payload()
     test_parse_date()
     test_fetch_officers_paginates()
     test_resolve_api_key_missing()

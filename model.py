@@ -22,7 +22,7 @@ class Provider(db.Model):
     postcode = db.Column(db.String(20))
     
     facilities = db.relationship('Facility', backref='provider', lazy=True)
-    people = db.relationship('Person', backref='provider', lazy=True)
+    roles = db.relationship('Role', backref='provider', lazy=True)
 
 class Facility(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -67,23 +67,43 @@ class Facility(db.Model):
     
     provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'), nullable=False, index=True)
 
-# A decision-maker at a provider organisation — the CRM target. Replaces the
-# old flat `Contact` placeholder (deleted in ADR 0012). Seeded from Companies
-# House directors (ADR 0013) and, later, LinkedIn; manual entry always works.
-# Interaction + User (the other two Phase-1 entities) are decided in ADR 0012
-# but not yet implemented — see docs/plans/crm-phase1.md.
+# A correlated human — one record per person across Companies House's two
+# endpoints (officers + PSC) and across the companies they're tied to (ADR 0014,
+# which reshapes the flat Person from ADR 0012). The link to a provider lives on
+# Role, so one Person can hold many Roles. Seeded from Companies House; later
+# from LinkedIn and manual entry.
 class Person(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), nullable=False, index=True)
-    role = db.Column(db.String(255))
-    # Provenance: which source asserted this person, and how much we trust it.
-    # The source-hierarchy / conflict rule lives in ADR 0013 §3.
-    source = db.Column(db.String(50), nullable=False)  # companies_house | phantombuster:<phantom> | manual
-    confidence = db.Column(db.String(20))  # high | medium | low
-    # Director appointment dates from Companies House (resignation NULL =
-    # currently active). Real db.Date, not String like the CSV-derived date
-    # fields: these arrive as ISO dates from the CH API, and the ADR 0013 merge
-    # rule queries role-currency (resignation_date IS NULL).
-    appointment_date = db.Column(db.Date)
-    resignation_date = db.Column(db.Date)
+    name = db.Column(db.String(255), nullable=False, index=True)  # display form
+    # Parsed identity used for correlation. The DOB (month+year, all CH gives for
+    # individuals) is the anchor; surname + first forename disambiguate. See the
+    # correlation rules in ADR 0014.
+    surname = db.Column(db.String(255), index=True)
+    forenames = db.Column(db.String(255))
+    normalized_name = db.Column(db.String(255), index=True)
+    dob_year = db.Column(db.Integer, index=True)
+    dob_month = db.Column(db.Integer)
+    nationality = db.Column(db.String(100))
+    # How sure we are this is one real human: 'low' when created without a DOB
+    # anchor (not auto-merged). See ADR 0014.
+    match_confidence = db.Column(db.String(20))  # high | low
+
+    roles = db.relationship('Role', backref='person', lazy=True)
+
+
+# One source-fact tying a Person to a Provider (ADR 0014): a directorship, a
+# person-with-significant-control relationship, a manual note, etc. The ADR 0013
+# §3 source-hierarchy (manual > Companies House for the same person+provider)
+# applies at this level.
+class Role(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    person_id = db.Column(db.Integer, db.ForeignKey('person.id'), nullable=False, index=True)
     provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'), nullable=False, index=True)
+    role_type = db.Column(db.String(50), nullable=False)  # director | psc | manual | ...
+    source = db.Column(db.String(50), nullable=False)  # companies_house:officers | companies_house:psc | manual | phantombuster:<phantom>
+    confidence = db.Column(db.String(20))  # high | medium | low
+    # appointed_on / notified_on, and resigned_on / ceased_on (NULL end = active).
+    start_date = db.Column(db.Date)
+    end_date = db.Column(db.Date)
+    # PSC natures_of_control summary (ownership %, voting rights); null for officers.
+    control_nature = db.Column(db.Text)

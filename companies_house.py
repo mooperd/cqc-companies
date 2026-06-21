@@ -73,6 +73,11 @@ class Officer:
     role: str  # officer_role, e.g. "director", "secretary", "llp-member"
     appointed_on: dt.date | None
     resigned_on: dt.date | None
+    # Partial DOB (month+year) and nationality — the correlation signals (ADR
+    # 0014). Present for individuals; absent for corporate officers.
+    dob_year: int | None = None
+    dob_month: int | None = None
+    nationality: str | None = None
 
     @property
     def is_active(self) -> bool:
@@ -80,8 +85,35 @@ class Officer:
         return self.resigned_on is None
 
 
+@dataclass(frozen=True)
+class PSC:
+    """A Companies House person with significant control."""
+
+    name: str
+    kind: str  # e.g. individual-person-with-significant-control, corporate-entity-...
+    natures_of_control: tuple[str, ...]  # e.g. ownership-of-shares-75-to-100-percent
+    notified_on: dt.date | None
+    ceased_on: dt.date | None
+    dob_year: int | None = None
+    dob_month: int | None = None
+    nationality: str | None = None
+
+    @property
+    def is_active(self) -> bool:
+        """True if control has not ceased."""
+        return self.ceased_on is None
+
+
 class CompaniesHouseError(Exception):
-    """A Companies House API request failed in a way the caller should handle."""
+    """A Companies House API request failed in a way the caller should handle.
+
+    `status` carries the HTTP code when there was one, so callers can treat a
+    404 specially (e.g. a company with no PSC filing).
+    """
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 # --- Parsing (pure; no I/O, unit-testable without a key) -----------------------
@@ -94,18 +126,47 @@ def _parse_date(value: str | None) -> dt.date | None:
     return dt.date.fromisoformat(value)
 
 
+def _parse_dob(item: dict) -> tuple[int | None, int | None]:
+    """Extract (year, month) from a CH date_of_birth object (partial — no day)."""
+    dob = item.get("date_of_birth") or {}
+    return dob.get("year"), dob.get("month")
+
+
 def _parse_officer(item: dict) -> Officer:
+    year, month = _parse_dob(item)
     return Officer(
         name=item.get("name", "").strip(),
         role=item.get("officer_role", "").strip(),
         appointed_on=_parse_date(item.get("appointed_on")),
         resigned_on=_parse_date(item.get("resigned_on")),
+        dob_year=year,
+        dob_month=month,
+        nationality=(item.get("nationality") or "").strip() or None,
+    )
+
+
+def _parse_psc(item: dict) -> PSC:
+    year, month = _parse_dob(item)
+    return PSC(
+        name=item.get("name", "").strip(),
+        kind=item.get("kind", "").strip(),
+        natures_of_control=tuple(item.get("natures_of_control", []) or ()),
+        notified_on=_parse_date(item.get("notified_on")),
+        ceased_on=_parse_date(item.get("ceased_on")),
+        dob_year=year,
+        dob_month=month,
+        nationality=(item.get("nationality") or "").strip() or None,
     )
 
 
 def parse_officers_payload(payload: dict) -> list[Officer]:
     """Map one /officers JSON page's `items` array to `Officer`s."""
     return [_parse_officer(item) for item in payload.get("items", [])]
+
+
+def parse_psc_payload(payload: dict) -> list[PSC]:
+    """Map one /persons-with-significant-control page's `items` to `PSC`s."""
+    return [_parse_psc(item) for item in payload.get("items", [])]
 
 
 # --- HTTP ---------------------------------------------------------------------
@@ -183,12 +244,30 @@ def _get_json(path: str, api_key: str) -> dict:
                     "against live.)"
                 ) from err
             if err.code == 404:
-                raise CompaniesHouseError(f"not found: {path}") from err
-            raise CompaniesHouseError(f"HTTP {err.code} for {path}") from err
+                raise CompaniesHouseError(f"not found: {path}", status=404) from err
+            raise CompaniesHouseError(f"HTTP {err.code} for {path}", status=err.code) from err
     raise CompaniesHouseError(f"giving up after {_MAX_RETRIES} attempts: {path}")
 
 
 # --- Public API ---------------------------------------------------------------
+
+
+def _fetch_all_pages(resource_path: str, parse_fn, key: str) -> list:
+    """Follow Companies House pagination for a list resource, returning every
+    item. Terminates on a short page (fewer than _PAGE_SIZE items) — relies only
+    on page size, so at most one spare request when the count is an exact
+    multiple of _PAGE_SIZE, which is rare and cheap.
+    """
+    items: list = []
+    start_index = 0
+    while True:
+        path = f"{resource_path}?items_per_page={_PAGE_SIZE}&start_index={start_index}"
+        page = parse_fn(_get_json(path, key))
+        items.extend(page)
+        if len(page) < _PAGE_SIZE:
+            break
+        start_index += _PAGE_SIZE
+    return items
 
 
 def fetch_officers(
@@ -199,32 +278,41 @@ def fetch_officers(
     """Fetch all officers for a company, following pagination.
 
     `active_only=True` filters out resigned officers. Role filtering (directors
-    vs secretaries) is left to the caller (WS2) — this returns every officer the
-    API reports so the appointment/resignation distinction stays visible.
+    vs secretaries) is left to the caller — this returns every officer the API
+    reports so the appointment/resignation distinction stays visible.
     """
     key = resolve_api_key(api_key)
-    company_number = company_number.strip()
-    officers: list[Officer] = []
-    start_index = 0
-
-    while True:
-        path = (
-            f"/company/{company_number}/officers"
-            f"?items_per_page={_PAGE_SIZE}&start_index={start_index}"
-        )
-        page = parse_officers_payload(_get_json(path, key))
-        officers.extend(page)
-        # A short page (fewer than a full page of items) is the last one. This
-        # relies only on page size, not the payload's `total_results` — one
-        # spare request when the count is an exact multiple of _PAGE_SIZE,
-        # which is rare and cheap at this volume.
-        if len(page) < _PAGE_SIZE:
-            break
-        start_index += _PAGE_SIZE
-
+    path = f"/company/{company_number.strip()}/officers"
+    officers = _fetch_all_pages(path, parse_officers_payload, key)
     if active_only:
         officers = [o for o in officers if o.is_active]
     return officers
+
+
+def fetch_psc(
+    company_number: str,
+    api_key: str | None = None,
+    active_only: bool = False,
+) -> list[PSC]:
+    """Fetch all persons with significant control for a company, paginated.
+
+    `active_only=True` filters out ceased control. Kind filtering (individuals vs
+    corporate entities) is left to the caller, mirroring fetch_officers.
+    """
+    key = resolve_api_key(api_key)
+    path = f"/company/{company_number.strip()}/persons-with-significant-control"
+    try:
+        pscs = _fetch_all_pages(path, parse_psc_payload, key)
+    except CompaniesHouseError as err:
+        # A PSC 404 means "no PSC filing", which is common and innocuous — an
+        # unknown company number would already have 404'd on the officers call
+        # the caller makes first, so reaching here means the company exists.
+        if err.status == 404:
+            return []
+        raise
+    if active_only:
+        pscs = [p for p in pscs if p.is_active]
+    return pscs
 
 
 # --- CLI ----------------------------------------------------------------------
@@ -240,6 +328,17 @@ def _officer_to_dict(officer: Officer) -> dict:
     }
 
 
+def _psc_to_dict(psc: PSC) -> dict:
+    return {
+        "name": psc.name,
+        "kind": psc.kind,
+        "natures_of_control": list(psc.natures_of_control),
+        "notified_on": psc.notified_on.isoformat() if psc.notified_on else None,
+        "ceased_on": psc.ceased_on.isoformat() if psc.ceased_on else None,
+        "is_active": psc.is_active,
+    }
+
+
 def _cmd_officers(args: argparse.Namespace) -> int:
     logger.info("env=%s (%s)", resolve_env(), _api_base())
     officers = fetch_officers(args.company_number, active_only=args.active_only)
@@ -252,10 +351,18 @@ def _cmd_officers(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_psc(args: argparse.Namespace) -> int:
+    logger.info("env=%s (%s)", resolve_env(), _api_base())
+    pscs = fetch_psc(args.company_number, active_only=args.active_only)
+    print(json.dumps([_psc_to_dict(p) for p in pscs], indent=2))
+    logger.info("%d PSCs (%d active)", len(pscs), sum(1 for p in pscs if p.is_active))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="companies_house",
-        description="Fetch a company's officers from the Companies House API.",
+        description="Fetch a company's officers and PSCs from the Companies House API.",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -264,6 +371,10 @@ def build_parser() -> argparse.ArgumentParser:
     officers.add_argument(
         "--active-only", action="store_true", help="exclude resigned officers"
     )
+
+    psc = sub.add_parser("psc", help="fetch persons with significant control")
+    psc.add_argument("company_number", help="Companies House number, e.g. 02518546")
+    psc.add_argument("--active-only", action="store_true", help="exclude ceased PSCs")
 
     return p
 
@@ -282,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     load_dotenv(".env.local", override=True)
 
-    handlers = {"officers": _cmd_officers}
+    handlers = {"officers": _cmd_officers, "psc": _cmd_psc}
     return handlers[args.cmd](args)
 
 

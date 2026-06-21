@@ -60,8 +60,8 @@ jobs:
           import import_records
           import enrich_locations
           import cqc_refresh  # bulk-download pipeline; stdlib-only
-          import companies_house  # CH officers client; stdlib-only
-          import enrich_directors  # CH officers -> Person mapper (WS2)
+          import companies_house  # CH officers + PSC client; stdlib-only
+          import enrich_people  # CH officers + PSC -> Person/Role (WS2/WS4)
 
           # Sanity-check the Flask app actually wired up.
           routes = sorted(r.rule for r in app.app.url_map.iter_rules())
@@ -75,13 +75,14 @@ jobs:
           assert parser.parse_args(['discover']).cmd == 'discover'
           print('cqc_refresh CLI parser OK')
 
-          # And companies_house's CLI.
+          # And companies_house's CLI (officers + psc subcommands).
           ch_parser = companies_house.build_parser()
           assert ch_parser.parse_args(['officers', '02518546']).cmd == 'officers'
+          assert ch_parser.parse_args(['psc', '02518546']).cmd == 'psc'
           print('companies_house CLI parser OK')
 
-          # And enrich_directors' CLI (WS4 provider-walk).
-          ed_parser = enrich_directors.build_parser()
-          assert ed_parser.parse_args(['--limit', '5']).limit == 5
-          print('enrich_directors CLI parser OK')
+          # And enrich_people's CLI (WS4 provider-walk).
+          ep_parser = enrich_people.build_parser()
+          assert ep_parser.parse_args(['--limit', '5']).limit == 5
+          print('enrich_people CLI parser OK')
           PY
