@@ -1,16 +1,20 @@
-"""Refresh the committed CQC CSVs from the monthly bulk downloads.
+"""Refresh CQC data from the monthly bulk downloads, as append-only deltas.
 
 Source: <https://www.cqc.org.uk/about-us/transparency/using-cqc-data> publishes
 three bulk files monthly (directory CSV, HSCA Active Locations ODS, Latest
 ratings ODS). This module discovers their current URLs by scraping the data
 index page, HEADs each URL to check ETag/Last-Modified against a committed
 state file, downloads what's changed, maps the new shape onto the existing
-`output.csv` / `Locations.csv` schema, and writes the regenerated files.
+`output.csv` / `Locations.csv` schema, and — per ADR 0015 — **diffs the new
+snapshot against the baseline (immutable seed CSVs + replayed prior deltas)**
+and writes a dated change-event file `data/changes/cqc-YYYY-MM-DD.json`. The
+seed CSVs are no longer rewritten; the database is rebuilt/updated by applying
+the deltas.
 
 The deployed pipeline is `python -m cqc_refresh refresh` from a scheduled
 GitHub Actions workflow; the same entry point works locally with
-`--dry-run` for development. See `docs/plans/cqc-bulk-ingest.md` and
-`docs/adr/0007-csvs-checked-into-repo.md` (Amendment 2026-05-19).
+`--dry-run` for development. See `docs/plans/data-freshness.md`,
+`docs/adr/0015-data-freshness-strategy.md`, and `docs/plans/cqc-bulk-ingest.md`.
 
 Why stdlib-only: this module wants to import cleanly in the PR-time smoke
 check without adding HTTP / HTML deps to `requirements.txt`. urllib +
@@ -32,7 +36,7 @@ import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
@@ -43,8 +47,16 @@ logger = logging.getLogger(__name__)
 
 DATA_INDEX_URL = "https://www.cqc.org.uk/about-us/transparency/using-cqc-data"
 STATE_FILE = Path("data/cqc-refresh-state.json")
-DIRECTORY_CSV = Path("output.csv")
-LOCATIONS_CSV = Path("Locations.csv")
+DIRECTORY_CSV = Path("output.csv")  # immutable seed (ADR 0015); not rewritten
+LOCATIONS_CSV = Path("Locations.csv")  # immutable seed (ADR 0015); not rewritten
+
+# Append-only change-event files (ADR 0015). Each refresh writes one dated file;
+# the seed CSVs + replayed deltas reconstruct current state.
+CHANGES_DIR = Path("data/changes")
+DIRECTORY_KEY = "CQC Location ID (for office use only)"  # output.csv: one row per location
+LOCATIONS_KEY = "Location ID"
+DIRECTORY_NAME_FIELD = "Name"
+LOCATIONS_NAME_FIELD = "Location Name"
 USER_AGENT = "cqc-companies-refresh/1.0 (+https://github.com/mooperd/cqc-companies)"
 
 # Stable identifiers for the three bulk files. Used as dict keys in the state
@@ -503,17 +515,6 @@ def merge_ratings_into_locations(
 # --- Pipeline -----------------------------------------------------------------
 
 
-def write_csv(path: Path, header: list[str], rows: Iterator[dict[str, str]]) -> int:
-    count = 0
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
-            count += 1
-    return count
-
-
 def _http_get(url: str) -> bytes:
     req = urllib.request.Request(url)
     req.add_header("User-Agent", USER_AGENT)
@@ -528,6 +529,63 @@ def _download_to(url: str, dest: Path) -> None:
     with urllib.request.urlopen(req, timeout=300) as resp, dest.open("wb") as f:
         while chunk := resp.read(1 << 16):
             f.write(chunk)
+
+
+# --- WS2: snapshot-diff into change-event files (ADR 0015) --------------------
+
+
+def _index_by_key(rows: Iterable[dict], key: str, header: list[str]) -> dict[str, dict]:
+    """Index rows by their key column, projecting each to exactly `header` (so
+    seed rows and freshly-mapped rows compare field-for-field)."""
+    out: dict[str, dict] = {}
+    for row in rows:
+        k = (row.get(key) or "").strip()
+        if k:
+            out[k] = {h: (row.get(h) or "") for h in header}
+    return out
+
+
+def _load_seed_index(path: Path, key: str, header: list[str]) -> dict[str, dict]:
+    if not path.exists():
+        return {}
+    with path.open(encoding="utf-8") as f:
+        return _index_by_key(csv.DictReader(f), key, header)
+
+
+def _apply_change_to_index(index: dict[str, dict], change: dict, key: str) -> None:
+    for row in change.get("added", []) + change.get("changed", []):
+        k = (row.get(key) or "").strip()
+        if k:
+            index[k] = row
+    for entry in change.get("removed", []):
+        index.pop(entry["id"] if isinstance(entry, dict) else entry, None)
+
+
+def _replay_prior_deltas(directory: dict, locations: dict, exclude: str) -> None:
+    """Apply every committed cqc-*.json (date order) onto the seed indexes,
+    skipping `exclude` (this run's own file, so a same-day re-run recomputes)."""
+    for path in sorted(CHANGES_DIR.glob("cqc-*.json")):
+        if path.name == exclude:
+            continue
+        delta = json.loads(path.read_text(encoding="utf-8"))
+        _apply_change_to_index(directory, delta.get("directory", {}), DIRECTORY_KEY)
+        _apply_change_to_index(locations, delta.get("locations", {}), LOCATIONS_KEY)
+
+
+def _diff_index(baseline: dict, new: dict, name_field: str) -> dict:
+    """Record-level diff keyed by ID; order-independent. `added`/`changed` carry
+    full rows; `removed` carries id + last-known name."""
+    new_keys, base_keys = set(new), set(baseline)
+    return {
+        "added": [new[k] for k in sorted(new_keys - base_keys)],
+        "changed": [new[k] for k in sorted(new_keys & base_keys) if new[k] != baseline[k]],
+        "removed": [{"id": k, "name": baseline[k].get(name_field, "")}
+                    for k in sorted(base_keys - new_keys)],
+    }
+
+
+def _change_count(change: dict) -> int:
+    return sum(len(change[k]) for k in ("added", "changed", "removed"))
 
 
 # --- CLI ----------------------------------------------------------------------
@@ -555,12 +613,6 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
     workdir = Path(args.workdir).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
 
-    # On a real refresh we overwrite the committed CSVs in place; on a dry
-    # run we write side-by-side in the workdir so the committed files stay
-    # untouched. The state file is only persisted on a real refresh.
-    directory_target = DIRECTORY_CSV if not args.dry_run else (workdir / "output.csv")
-    locations_target = LOCATIONS_CSV if not args.dry_run else (workdir / "Locations.csv")
-
     urls = discover_urls()
     state = load_state()
     new_state: dict[str, FileMeta] = {}
@@ -583,35 +635,64 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
             save_state(new_state)
         return 0
 
-    # Always need all three files to regenerate. If only one changed, fetch
-    # the others to current versions for consistent output.
+    # Need all three files to compute a full snapshot. If only one changed,
+    # fetch the others to current versions for a consistent diff.
     for kind, url in urls.as_dict().items():
         if kind not in downloads:
             dest = workdir / Path(url).name
-            logger.info("downloading (for full regenerate) %s → %s", url, dest)
+            logger.info("downloading (for full snapshot) %s → %s", url, dest)
             _download_to(url, dest)
             downloads[kind] = dest
 
-    # --- Regenerate output.csv from the directory CSV ------------------------
+    # --- Map the new bulk into id→row indexes (the NEW snapshot) -------------
     dir_path = downloads[KIND_DIRECTORY]
-    logger.info("mapping %s → %s", dir_path.name, directory_target)
     with dir_path.open(encoding="utf-8") as src:
-        # Skip the 4-line preamble (title / blank / produced-on / blank).
-        for _ in range(4):
+        for _ in range(4):  # skip the 4-line preamble (title / blank / produced-on / blank)
             src.readline()
-        reader = csv.DictReader(src)
-        n = write_csv(directory_target, OUTPUT_CSV_HEADER, map_directory_csv(reader))
-    logger.info("wrote %s with %d rows", directory_target, n)
+        new_directory = _index_by_key(
+            map_directory_csv(csv.DictReader(src)), DIRECTORY_KEY, OUTPUT_CSV_HEADER)
+    logger.info("mapped %d directory rows", len(new_directory))
 
-    # --- Regenerate Locations.csv from HSCA + ratings ------------------------
-    hsca_path = downloads[KIND_HSCA]
-    ratings_path = downloads[KIND_RATINGS]
-    logger.info("mapping %s + %s → %s", hsca_path.name, ratings_path.name, locations_target)
-    ratings = pivot_ratings_to_wide(stream_ods(ratings_path, "Locations"))
-    logger.info("pivoted ratings for %d locations", len(ratings))
-    mapped = map_hsca_ods(stream_ods(hsca_path, "HSCA_Active_Locations"))
-    n = write_csv(locations_target, LOCATIONS_CSV_HEADER, merge_ratings_into_locations(mapped, ratings))
-    logger.info("wrote %s with %d rows", locations_target, n)
+    ratings = pivot_ratings_to_wide(stream_ods(downloads[KIND_RATINGS], "Locations"))
+    mapped = merge_ratings_into_locations(
+        map_hsca_ods(stream_ods(downloads[KIND_HSCA], "HSCA_Active_Locations")), ratings)
+    new_locations = _index_by_key(mapped, LOCATIONS_KEY, LOCATIONS_CSV_HEADER)
+    logger.info("mapped %d location rows", len(new_locations))
+
+    # --- Reconstruct the BASELINE = seed CSVs + replay prior deltas ----------
+    target_name = f"cqc-{dt.date.today():%Y-%m-%d}.json"
+    baseline_directory = _load_seed_index(DIRECTORY_CSV, DIRECTORY_KEY, OUTPUT_CSV_HEADER)
+    baseline_locations = _load_seed_index(LOCATIONS_CSV, LOCATIONS_KEY, LOCATIONS_CSV_HEADER)
+    _replay_prior_deltas(baseline_directory, baseline_locations, exclude=target_name)
+    logger.info("baseline: %d directory, %d location rows",
+                len(baseline_directory), len(baseline_locations))
+
+    # --- Diff → change-event file (ADR 0015); seed CSVs are NOT rewritten ----
+    directory_changes = _diff_index(baseline_directory, new_directory, DIRECTORY_NAME_FIELD)
+    locations_changes = _diff_index(baseline_locations, new_locations, LOCATIONS_NAME_FIELD)
+    total = _change_count(directory_changes) + _change_count(locations_changes)
+
+    if total == 0:
+        logger.info("files re-published but no record-level changes — no delta written")
+    else:
+        delta = {
+            "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "source": urls.as_dict(),
+            "directory": directory_changes,
+            "locations": locations_changes,
+        }
+        out_dir = workdir if args.dry_run else CHANGES_DIR
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / target_name
+        out_path.write_text(json.dumps(delta, indent=1), encoding="utf-8")
+        logger.info(
+            "wrote %s — directory +%d ~%d -%d, locations +%d ~%d -%d",
+            out_path,
+            len(directory_changes["added"]), len(directory_changes["changed"]),
+            len(directory_changes["removed"]),
+            len(locations_changes["added"]), len(locations_changes["changed"]),
+            len(locations_changes["removed"]),
+        )
 
     if args.dry_run:
         logger.info("--dry-run: state file NOT updated")

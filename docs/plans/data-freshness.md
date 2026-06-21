@@ -41,15 +41,19 @@ the files. `applied_event_file` ledger (filename, applied_at). Additive
 
 ### WS2 — CQC change-event file producer
 
-**Status:** Open.
+**Status:** Shipped (2026-06-22).
 
-In `cqc_refresh`: treat `output.csv`/`Locations.csv` as an immutable seed.
-Reconstruct baseline in memory (seed + replay prior `cqc-*.json`), diff the new
-bulk by `Provider ID`/`Location ID`, write `data/changes/cqc-YYYY-MM-DD.json`
-(added/changed full rows, removed IDs+name). Stop overwriting the seed.
+`cqc_refresh._cmd_refresh` now treats `output.csv`/`Locations.csv` as an
+immutable seed: it maps the new bulk into id→row indexes (keyed on
+`CQC Location ID` / `Location ID`, projected to the canonical header),
+reconstructs the baseline (`_load_seed_index` + `_replay_prior_deltas`), diffs
+(`_diff_index`), and writes `data/changes/cqc-YYYY-MM-DD.json` (added/changed
+full rows, removed id+name). Seed CSVs are no longer written. `write_csv`
+(dead) removed.
 
-**Exit:** two consecutive fixture runs produce a correct delta; replay
-reconstructs state; no seed rewrite.
+**Exit:** ✓ `test_cqc_refresh.py` covers index/projection, diff
+(added/changed/removed), apply, and the **seed + replay(delta) == new snapshot**
+invariant. (Live end-to-end runs when the next bulk lands / via WS5.)
 
 ### WS3 — Apply/replay engine (event files → DB projection)
 
