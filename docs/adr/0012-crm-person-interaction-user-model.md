@@ -1,6 +1,18 @@
 # ADR 0012 — CRM data model: Person, Interaction, User (replacing Contact)
 
-**Status:** Accepted (2026-06-20). `Person` implemented; `Interaction` + `User` decided here but deferred — see Decision §4.
+**Status:** Accepted (2026-06-20). `Person` implemented; `Interaction` + `User` decided here but deferred — see Decision §4. **Amended 2026-06-21:** the flat `Person` is reshaped into `Person` ↔ `Role` by [ADR 0014](0014-person-role-correlation-model.md) — see Amendment below.
+
+## Amendment (2026-06-21) — Person split into Person + Role
+
+The flat `Person` decided here (one row per person, carrying `role`/`source`/
+dates against a provider) proved unable to represent one human holding multiple
+roles — which Companies House requires, since the same person appears as both a
+director and a person with significant control, and as a director of multiple
+providers. [ADR 0014](0014-person-role-correlation-model.md) supersedes the
+`Person` shape: `Person` becomes the correlated human and a new `Role` entity
+carries each source-fact (role_type, source, confidence, dates). The
+`Interaction` and `User` decisions here are unchanged; `Interaction` will FK
+`Person` as before.
 
 **TL;DR.** In the context of turning the CQC directory into the relationship CRM
 described in [`docs/product-vision.md`](../product-vision.md), facing a `Contact`

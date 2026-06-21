@@ -30,29 +30,37 @@ the only source.
   <https://developer.company-information.service.gov.uk/>). Stored as a secret,
   never committed.
 
-## Where things stand (2026-06-20)
+## Where things stand (2026-06-21) — reshaped by ADR 0014
 
-Groundwork done; the `Person` blocker is now cleared:
+**Reopened.** WS1/WS2/WS4 shipped against the flat `Person` (ADR 0012) and a
+full run was *started then stopped at ~1,250 providers* when two gaps surfaced:
+(a) we only ingested officers, not persons with significant control (PSC), and
+(b) the flat `Person` can't represent one human with multiple roles or correlate
+the same human across CH's two endpoints and across companies.
+[ADR 0014](../adr/0014-person-role-correlation-model.md) reshapes `Person` into
+**`Person` ↔ `Role`** with global DOB+name correlation, and
+[ADR 0013](../adr/0013-companies-house-source.md) (amended) adds the PSC source,
+individuals only. The ~10k flat rows from the stopped run will be dropped.
 
-- **WS0 — persist the CH number: Shipped.** `Provider.companies_house_number`
-  (nullable, indexed) is populated in `enrich_locations.py` from the
-  `Locations.csv` column. Verified against a throwaway local Postgres: 25,514 of
-  36,982 providers (~69%) carry a CH number after a full round-trip.
-- **WS1 — API client: Shipped + live-verified** (2026-06-21).
-  `companies_house.py` (`fetch_officers`) — stdlib-only, paginating, with the
-  active/resigned distinction; offline tests pass. Verified against the **live**
-  CH API on three real companies (e.g. 02518546 Medacs: 37 officers, 3 active /
-  34 resigned; `--active-only` returns exactly the 3). A `COMPANIES_HOUSE_ENV`
-  switch selects live/test key + matching base.
-- **WS2 — officers → Person mapper: Shipped** (2026-06-21). `enrich_directors.py`
-  (`sync_provider_directors`) — director-role filter, dedupe, idempotent upsert
-  of `source='companies_house'` rows; offline tests + end-to-end with live data.
-- **WS4 — provider-walk CLI: Shipped** (2026-06-21). `enrich_directors.py`
-  (`enrich_all`) walks providers with a CH number, fetch + sync per provider,
-  batched commits, rate-limit pacing; verified end-to-end on a throwaway
-  Postgres. Scheduled cadence deferred.
-- **WS3: Open** (`Person` exists via ADR 0012). Cross-source precedence —
-  lower value until manual/LinkedIn `Person` rows exist.
+- **WS0 — persist the CH number on Provider: Shipped, unaffected.** 25,514 of
+  36,982 providers (~69%) carry a CH number.
+- **WS1 — API client: officers shipped + live-verified; PSC to add.**
+  `companies_house.py` `fetch_officers` works (Medacs: 37 officers). **Rework:**
+  add `fetch_psc` (`/persons-with-significant-control`) + a `PSC` dataclass +
+  `psc` CLI subcommand. Both endpoints expose partial DOB for correlation.
+- **WS2 — map → Person+Role: reopened (rework).** Was `enrich_directors.py`
+  flat-Person upsert. **Rework:** parse officer/PSC names → (surname, forenames);
+  find-or-create global `Person` by DOB+surname+first-forename; attach `Role`
+  (role_type, namespaced source, dates, control_nature); individuals only. Rename
+  `enrich_directors.py` → `enrich_people.py`.
+- **WS4 — provider-walk CLI: reopened (rework).** Fetch **both** endpoints per
+  provider, correlate + sync `Person`+`Role`. ~2 API calls/provider → full run
+  ~7h. `--skip-enriched` + batched commits carry over.
+- **WS3: Open.** Source precedence now per `Role` (ADR 0013 §3 / ADR 0014 §6);
+  still lower value until manual/LinkedIn sources exist.
+
+New prerequisite: the `Person`+`Role` schema (ADR 0014) — tracked in
+[`crm-phase1.md`](crm-phase1.md) WS1.
 
 ## Workstreams
 
@@ -71,7 +79,8 @@ that have one (verified: 25,514 / 36,982).
 
 ### WS1 — Companies House API client
 
-**Status:** Shipped + live-verified (2026-06-21).
+**Status:** Officers shipped + live-verified (2026-06-21); **reopened** to add the
+PSC endpoint (ADR 0013 amendment / ADR 0014).
 
 `companies_house.py` — a stdlib-only client (matching `cqc_refresh.py`; no new
 `requirements.txt` dep). `fetch_officers(company_number, api_key=None,
@@ -102,9 +111,11 @@ companies via `COMPANIES_HOUSE_ENV=live` — e.g. 02518546 (Medacs): 37 officers
 3 active / 34 resigned with correct dates, and `--active-only` returns exactly
 the 3 active. The active/resigned distinction holds on real data.
 
-### WS2 — Map officers to `Person` rows
+### WS2 — Map officers + PSC to `Person` + `Role`
 
-**Status:** Shipped (2026-06-21).
+**Status:** Flat-Person mapper shipped (2026-06-21); **reopened** for the
+`Person`↔`Role` reshape + correlation + PSC (ADR 0014). `enrich_directors.py` →
+`enrich_people.py`.
 
 `enrich_directors.py` (parallel to `enrich_locations.py`). `is_director_role`
 keeps director-class roles (`director`, `corporate-director`, nominee-director)
@@ -145,7 +156,8 @@ and does not resurrect it from a stale lower-confidence source.
 
 ### WS4 — Enrichment entry point + cadence
 
-**Status:** Shipped (2026-06-21) — CLI done; scheduled cadence not yet wired.
+**Status:** Flat-Person CLI shipped (2026-06-21); **reopened** to fetch both
+endpoints and sync `Person`+`Role` (ADR 0014). Scheduled cadence still deferred.
 
 `python enrich_directors.py [--limit N] [--sleep S] [--dry-run] [--skip-enriched]`
 (the CLI lives
@@ -178,18 +190,17 @@ idempotent (0 created / 37 updated); `--dry-run` persists nothing.
 When all of these are true, this plan closes:
 
 - [x] WS0 — CH number persisted on `Provider`.
-- [x] WS1 — Companies House API client shipped and **live-verified**
-      (2026-06-21) on real companies.
-- [x] WS2 — officers → `Person` mapper shipped (2026-06-21); idempotent,
-      end-to-end-verified with live data.
-- [x] WS4 — provider-walk CLI shipped (2026-06-21); end-to-end-verified on a
-      throwaway Postgres. Scheduled cadence deferred.
-- [ ] WS3 — cross-source precedence (deferred until manual/LinkedIn sources
-      exist; nothing to conflict with yet).
-- [ ] Director `Person` rows seeded from Companies House for CH-registered
-      providers, round-tripping through a local Postgres.
-- [ ] The source-hierarchy rule (ADR 0013 §3) is exercised and holds on re-run.
-- [ ] ADR 0013 moved from Proposed to Accepted.
+- [~] WS1 — officers client shipped + live-verified; **PSC endpoint still to add**
+      (ADR 0014 rework).
+- [~] WS2 — flat-Person mapper shipped; **reopened** for `Person`+`Role` +
+      correlation + PSC (ADR 0014).
+- [~] WS4 — flat-Person CLI shipped; **reopened** to fetch both endpoints and
+      sync `Person`+`Role`. Scheduled cadence deferred.
+- [ ] WS3 — cross-source precedence (per `Role`; deferred until manual/LinkedIn
+      sources exist).
+- [ ] `Person`+`Role` rows seeded from officers **and** PSC for CH-registered
+      providers, correlated by DOB+name, round-tripping through a local Postgres.
+- [ ] ADR 0014 (Person/Role) and ADR 0013 moved from Proposed to Accepted.
 
 ## References
 

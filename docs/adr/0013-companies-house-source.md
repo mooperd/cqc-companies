@@ -1,6 +1,25 @@
 # ADR 0013 — Companies House as the first director-identification source
 
-**Status:** Proposed.
+**Status:** Proposed. **Amended 2026-06-21:** scope widened to two CH people
+sources (officers **and** persons with significant control), individuals only —
+see Amendment below.
+
+## Amendment (2026-06-21) — add the PSC endpoint; individuals only
+
+WS1 originally used only `/officers`. Companies House also exposes
+`/persons-with-significant-control` (PSC) — beneficial owners/controllers, often
+the real decision-makers and frequently *not* directors (e.g. the individual
+owners of U&I Care). Both endpoints now feed identification, as two namespaced
+sources: `companies_house:officers` and `companies_house:psc`.
+
+Two refinements, both detailed in [ADR 0014](0014-person-role-correlation-model.md):
+
+- **Individuals only.** Corporate/legal-entity officers and PSCs (holding
+  companies, nominee entities) are not contactable people and are excluded from
+  `Person`.
+- **The §3 source-hierarchy now applies per `Role`**, not per flat Person — each
+  source-fact is a `Role` on a correlated `Person`. Manual still overrides CH;
+  CH is authoritative for the director/PSC facts it reports.
 
 <!--
 Status lifecycle:

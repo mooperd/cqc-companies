@@ -26,10 +26,12 @@ WS6 (the `Contact` reshape) from
 
 ## Where things stand (2026-06-20)
 
-- **WS1 — Person entity: Shipped.** `Person` modelled (FK to `Provider`,
-  source/confidence, appointment/resignation dates) and `Contact` deleted.
-  Verified on a throwaway local Postgres: schema, insert, backref, and
-  `Contact`-is-gone all confirmed.
+- **WS1 — Person entity: Shipped, then reshaped (ADR 0014).** Flat `Person`
+  shipped + `Contact` deleted (2026-06-20). Now being reshaped into `Person` ↔
+  `Role` (one human, many roles) to support Companies House correlation — see
+  [ADR 0014](../adr/0014-person-role-correlation-model.md) and
+  [`companies-house-enrichment.md`](companies-house-enrichment.md). Schema rework
+  pending.
 - **WS2–WS5: Open / blocked.** Interaction, User+auth, and the UI loop not
   started. WS3 (User) is blocked on the auth ADR.
 
@@ -37,13 +39,17 @@ WS6 (the `Contact` reshape) from
 
 ### WS1 — `Person` entity + delete `Contact`
 
-**Status:** Shipped (2026-06-20).
+**Status:** Shipped (2026-06-20); **reshaped into `Person` ↔ `Role`** by
+[ADR 0014](../adr/0014-person-role-correlation-model.md) (rework pending).
 
-`Person` added to `model.py` with `name`, `role`, `source`, `confidence`,
-`appointment_date`/`resignation_date` (`db.Date`), and FK to `Provider`
-(`Provider.people` backref). `Contact` class removed and its unused import
-dropped from `app.py`. Additive table via `db.create_all()` — no Alembic
-([ADR 0002](../adr/0002-postgres-sqlalchemy-no-migrations.md)).
+Flat `Person` added to `model.py` (`name`, `role`, `source`, `confidence`,
+`appointment_date`/`resignation_date`, FK `Provider`) and `Contact` deleted.
+**Reshape (ADR 0014):** split into a global `Person` (the correlated human:
+name, surname/forenames, dob_year/month, nationality, match_confidence) and a
+`Role` (per source-fact: role_type, source, confidence, start/end dates,
+control_nature, FK person + provider). Enables one human with many roles, the
+prerequisite the Companies House enrichment needs. Additive via
+`db.create_all()` — no Alembic ([ADR 0002](../adr/0002-postgres-sqlalchemy-no-migrations.md)).
 
 **Exit:** ✓ `person` table builds; a Person inserts and round-trips with its
 Provider backref; `contact` table no longer exists.
