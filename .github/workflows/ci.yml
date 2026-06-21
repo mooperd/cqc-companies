@@ -61,6 +61,7 @@ jobs:
           import enrich_locations
           import cqc_refresh  # bulk-download pipeline; stdlib-only
           import companies_house  # CH officers client; stdlib-only
+          import enrich_directors  # CH officers -> Person mapper (WS2)
 
           # Sanity-check the Flask app actually wired up.
           routes = sorted(r.rule for r in app.app.url_map.iter_rules())

@@ -44,8 +44,11 @@ Groundwork done; the `Person` blocker is now cleared:
   CH API on three real companies (e.g. 02518546 Medacs: 37 officers, 3 active /
   34 resigned; `--active-only` returns exactly the 3). A `COMPANIES_HOUSE_ENV`
   switch selects live/test key + matching base.
-- **WS2–WS4: Open** (unblocked — `Person` exists via ADR 0012). Next step is
-  WS2 (map officers → `Person` rows).
+- **WS2 — officers → Person mapper: Shipped** (2026-06-21). `enrich_directors.py`
+  (`sync_provider_directors`) — director-role filter, dedupe, idempotent upsert
+  of `source='companies_house'` rows; offline tests + end-to-end with live data.
+- **WS3–WS4: Open** (`Person` exists via ADR 0012). Next is WS4 (the provider-walk
+  CLI) or WS3 (cross-source precedence).
 
 ## Workstreams
 
@@ -97,18 +100,29 @@ the 3 active. The active/resigned distinction holds on real data.
 
 ### WS2 — Map officers to `Person` rows
 
-**Status:** Open (unblocked 2026-06-20 — `Person` exists).
+**Status:** Shipped (2026-06-21).
 
-Transform Companies House officers into `Person` rows against the provider,
-setting `source = companies_house`, a confidence value, and role + appointment
-dates per the Phase-1 `Person` schema. Filter to director-class roles (skip
-secretaries / nominee entries unless Phase 1 decides otherwise).
+`enrich_directors.py` (parallel to `enrich_locations.py`). `is_director_role`
+keeps director-class roles (`director`, `corporate-director`, nominee-director)
+and drops secretaries/nominee-secretaries. `dedupe_by_identity` collapses repeat
+appointments of one person (preferring an active appointment, then the latest
+`appointed_on`). `sync_provider_directors(session, provider_id, officers)`
+upserts director `Person` rows with `source='companies_house'`,
+`confidence='high'` (ADR 0013 §3), and the role + appointment/resignation dates.
 
-**Deliverables:** a mapper from `Officer` → `Person`, idempotent on
-`(provider, person identity)`.
+Idempotent on (provider, case-folded name): a re-run updates the existing
+CH-sourced row rather than duplicating. It only ever touches
+`source='companies_house'` rows — manual/LinkedIn rows are left alone (the full
+cross-source precedence is WS3).
 
-**Exit:** running against a sample of providers creates the expected `Person`
-rows with correct source/role/date fields.
+**Deliverables:** ✓ `enrich_directors.sync_provider_directors(...)` +
+`test_enrich_directors.py` (role filter, dedupe, create/skip, idempotency,
+manual-rows-untouched), against in-memory SQLite. Wired into the CI smoke check.
+
+**Exit:** ✓ Offline tests pass. ✓ End-to-end with live WS1 data (Medacs
+02518546): 37 officers → 30 director `Person` rows (3 active), 5 secretaries
+skipped, 2 duplicate appointments deduped; re-run idempotent (0 created / 30
+updated).
 
 ### WS3 — Source-hierarchy merge
 
@@ -148,7 +162,9 @@ When all of these are true, this plan closes:
 - [x] WS0 — CH number persisted on `Provider`.
 - [x] WS1 — Companies House API client shipped and **live-verified**
       (2026-06-21) on real companies.
-- [ ] WS2–WS4 shipped (`Person` exists; not yet started).
+- [x] WS2 — officers → `Person` mapper shipped (2026-06-21); idempotent,
+      end-to-end-verified with live data.
+- [ ] WS3–WS4 shipped (`Person` exists; not yet started).
 - [ ] Director `Person` rows seeded from Companies House for CH-registered
       providers, round-tripping through a local Postgres.
 - [ ] The source-hierarchy rule (ADR 0013 §3) is exercised and holds on re-run.
