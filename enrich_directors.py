@@ -20,11 +20,20 @@ Pure functions (`is_director_role`, `dedupe_by_identity`) need no DB; the
 
 from __future__ import annotations
 
+import argparse
 import datetime as dt
 import logging
+import os
+import sys
+import time
 from collections.abc import Iterable
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+import companies_house as ch
 from companies_house import Officer
+from model import Provider, db
 from model import Person
 
 logger = logging.getLogger(__name__)
@@ -100,3 +109,107 @@ def sync_provider_directors(
 
     skipped = len(officers) - len(director_officers)
     return {"created": created, "updated": updated, "skipped_non_director": skipped}
+
+
+# --- WS4: walk providers and enrich from the live API -------------------------
+
+# Companies House allows ~600 requests / 5 min (≈2/s). Pace requests so a full
+# walk stays under the ceiling; the client's 429 backoff is the safety net.
+_DEFAULT_SLEEP = 0.5
+_COMMIT_EVERY = 50
+
+
+def providers_with_ch_number(session, limit: int | None = None):
+    """Providers that carry a Companies House number, ordered by id."""
+    query = (
+        session.query(Provider)
+        .filter(
+            Provider.companies_house_number.isnot(None),
+            Provider.companies_house_number != "",
+        )
+        .order_by(Provider.id)
+    )
+    if limit is not None:
+        query = query.limit(limit)
+    return query.all()
+
+
+def enrich_all(
+    session, limit: int | None = None, sleep: float = _DEFAULT_SLEEP, dry_run: bool = False
+) -> dict[str, int]:
+    """Walk providers with a CH number, fetch officers (WS1) and sync director
+    Person rows (WS2) for each. Commits in batches; a 404 skips that provider, a
+    bad key (RuntimeError) aborts. Returns aggregate counts."""
+    providers = providers_with_ch_number(session, limit)
+    logger.info("enriching %d providers (env=%s)", len(providers), ch.resolve_env())
+
+    totals = {"providers": 0, "created": 0, "updated": 0, "not_found": 0}
+    for i, provider in enumerate(providers, 1):
+        number = (provider.companies_house_number or "").strip()
+        try:
+            officers = ch.fetch_officers(number)
+        except ch.CompaniesHouseError as err:
+            totals["not_found"] += 1
+            logger.warning("skip provider %s (CH %s): %s", provider.id, number, err)
+            continue
+
+        stats = sync_provider_directors(session, provider.id, officers)
+        totals["providers"] += 1
+        totals["created"] += stats["created"]
+        totals["updated"] += stats["updated"]
+
+        if i % _COMMIT_EVERY == 0:
+            if not dry_run:
+                session.commit()
+            logger.info("  ...%d/%d providers; %s", i, len(providers), totals)
+        if sleep:
+            time.sleep(sleep)
+
+    if dry_run:
+        session.rollback()
+        logger.info("--dry-run: rolled back, no changes persisted")
+    else:
+        session.commit()
+    return totals
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="enrich_directors",
+        description="Populate director Person rows from Companies House (WS4).",
+    )
+    p.add_argument("--limit", type=int, default=None, help="process only the first N providers")
+    p.add_argument(
+        "--sleep", type=float, default=_DEFAULT_SLEEP,
+        help=f"seconds between API calls (default {_DEFAULT_SLEEP}; rate-limit pacing)",
+    )
+    p.add_argument("--dry-run", action="store_true", help="fetch + sync, then roll back")
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    # Loads COMPANIES_HOUSE_* and DATABASE_URL; .env.local overrides .env.
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    load_dotenv(".env.local", override=True)
+
+    database_url = os.getenv(
+        "DATABASE_URL", "postgresql://darwinist:darwinist@localhost:5432/darwinist"
+    )
+    engine = create_engine(database_url)
+    db.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        totals = enrich_all(
+            session, limit=args.limit, sleep=args.sleep, dry_run=args.dry_run
+        )
+    logger.info("done: %s", totals)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

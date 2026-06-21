@@ -134,10 +134,29 @@ def test_sync_leaves_manual_rows_untouched():
     print("OK — sync: leaves manual-sourced rows untouched (WS3 boundary)")
 
 
+def test_providers_with_ch_number_filters():
+    with _memory_session() as s:
+        # Two with a CH number, one with empty string, one NULL — only the two
+        # real ones should be returned (WS4's walk target).
+        s.add_all([
+            Provider(name="Has CH", cqc_provider_id="1-A", companies_house_number="01234567"),
+            Provider(name="Also CH", cqc_provider_id="1-B", companies_house_number="07654321"),
+            Provider(name="Empty CH", cqc_provider_id="1-C", companies_house_number=""),
+            Provider(name="No CH", cqc_provider_id="1-D", companies_house_number=None),
+        ])
+        s.commit()
+
+        names = sorted(p.name for p in ed.providers_with_ch_number(s))
+        assert names == ["Also CH", "Has CH"], names
+        assert len(ed.providers_with_ch_number(s, limit=1)) == 1
+    print("OK — providers_with_ch_number: only providers with a CH number, honours limit")
+
+
 if __name__ == "__main__":
     test_is_director_role()
     test_dedupe_prefers_active_then_latest()
     test_sync_creates_directors_and_skips_secretaries()
     test_sync_is_idempotent()
     test_sync_leaves_manual_rows_untouched()
+    test_providers_with_ch_number_filters()
     print("\nAll enrich_directors tests passed.")

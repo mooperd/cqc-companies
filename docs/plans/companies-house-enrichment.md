@@ -47,8 +47,12 @@ Groundwork done; the `Person` blocker is now cleared:
 - **WS2 — officers → Person mapper: Shipped** (2026-06-21). `enrich_directors.py`
   (`sync_provider_directors`) — director-role filter, dedupe, idempotent upsert
   of `source='companies_house'` rows; offline tests + end-to-end with live data.
-- **WS3–WS4: Open** (`Person` exists via ADR 0012). Next is WS4 (the provider-walk
-  CLI) or WS3 (cross-source precedence).
+- **WS4 — provider-walk CLI: Shipped** (2026-06-21). `enrich_directors.py`
+  (`enrich_all`) walks providers with a CH number, fetch + sync per provider,
+  batched commits, rate-limit pacing; verified end-to-end on a throwaway
+  Postgres. Scheduled cadence deferred.
+- **WS3: Open** (`Person` exists via ADR 0012). Cross-source precedence —
+  lower value until manual/LinkedIn `Person` rows exist.
 
 ## Workstreams
 
@@ -141,19 +145,28 @@ and does not resurrect it from a stale lower-confidence source.
 
 ### WS4 — Enrichment entry point + cadence
 
-**Status:** Open (unblocked 2026-06-20 — `Person` exists).
+**Status:** Shipped (2026-06-21) — CLI done; scheduled cadence not yet wired.
 
-A command (mirroring the `cqc_refresh` CLI shape) that walks providers with a CH
-number and runs WS1→WS3. Decide refresh cadence (likely: piggy-back the monthly
-CQC refresh, or a separate scheduled job). Manual entry remains available in the
-app UI throughout.
+`python enrich_directors.py [--limit N] [--sleep S] [--dry-run]` (the CLI lives
+in `enrich_directors.py` alongside the WS2 mapper, mirroring
+`enrich_locations.py`). `providers_with_ch_number` selects providers carrying a
+CH number; `enrich_all` walks them, calling `fetch_officers` (WS1) +
+`sync_provider_directors` (WS2) per provider, committing every 50, pacing
+requests (`--sleep`, default 0.5s) under the ~600-req/5-min limit with the
+client's 429 backoff as the safety net. A 404 skips that provider (counted
+`not_found`); a bad key aborts. `--dry-run` rolls back.
 
-**Deliverables:** `python -m companies_house enrich` (or equivalent);
-optionally wired into a scheduled workflow.
+**Deliverables:** ✓ `enrich_directors.py` CLI (`enrich_all`,
+`providers_with_ch_number`, `build_parser`/`main`); `providers_with_ch_number`
+filter test; wired into the CI smoke check.
+**Not done:** scheduled workflow / cadence — deferred (a full ~25k-provider walk
+is ~3.5h at the rate limit; decide piggy-back-monthly vs separate job when we
+run it for real).
 
-**Exit:** an end-to-end run populates director `Person` rows for CH-registered
-providers against a local Postgres; coverage roughly matches the ~69% that carry
-a CH number.
+**Exit:** ✓ End-to-end against a throwaway local Postgres seeded with real
+providers (Medacs / Alphonsus / U&I + one without a CH number): 3 enriched (the
+no-CH one skipped), 37 director rows, all `source=companies_house`; re-run
+idempotent (0 created / 37 updated); `--dry-run` persists nothing.
 
 ## Phase exit criteria
 
@@ -164,7 +177,10 @@ When all of these are true, this plan closes:
       (2026-06-21) on real companies.
 - [x] WS2 — officers → `Person` mapper shipped (2026-06-21); idempotent,
       end-to-end-verified with live data.
-- [ ] WS3–WS4 shipped (`Person` exists; not yet started).
+- [x] WS4 — provider-walk CLI shipped (2026-06-21); end-to-end-verified on a
+      throwaway Postgres. Scheduled cadence deferred.
+- [ ] WS3 — cross-source precedence (deferred until manual/LinkedIn sources
+      exist; nothing to conflict with yet).
 - [ ] Director `Person` rows seeded from Companies House for CH-registered
       providers, round-tripping through a local Postgres.
 - [ ] The source-hierarchy rule (ADR 0013 §3) is exercised and holds on re-run.

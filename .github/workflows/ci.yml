@@ -79,4 +79,9 @@ jobs:
           ch_parser = companies_house.build_parser()
           assert ch_parser.parse_args(['officers', '02518546']).cmd == 'officers'
           print('companies_house CLI parser OK')
+
+          # And enrich_directors' CLI (WS4 provider-walk).
+          ed_parser = enrich_directors.build_parser()
+          assert ed_parser.parse_args(['--limit', '5']).limit == 5
+          print('enrich_directors CLI parser OK')
           PY
