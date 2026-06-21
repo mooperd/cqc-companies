@@ -59,7 +59,9 @@ _PAGE_SIZE = 50
 # Companies House allows ~600 requests / 5 min. We back off on 429 rather than
 # rate-limit pre-emptively — the enrichment cadence is well under the ceiling.
 _MAX_RETRIES = 4
-_DEFAULT_BACKOFF = 5.0  # seconds, used when a 429 carries no Retry-After
+_DEFAULT_BACKOFF = 5.0  # seconds, base for backoff when no Retry-After header
+# Transient HTTP codes worth retrying (rate-limit + gateway/server errors).
+_RETRY_CODES = {429, 500, 502, 503, 504}
 
 
 # --- Data classes -------------------------------------------------------------
@@ -227,10 +229,14 @@ def _get_json(path: str, api_key: str) -> dict:
             with urllib.request.urlopen(req, timeout=60) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as err:
-            if err.code == 429 and attempt < _MAX_RETRIES:
+            # Transient: 429 rate-limit and 5xx gateway errors. Over tens of
+            # thousands of requests these happen; back off and retry rather than
+            # aborting the run.
+            if err.code in _RETRY_CODES and attempt < _MAX_RETRIES:
                 retry_after = err.headers.get("Retry-After")
-                delay = float(retry_after) if retry_after else _DEFAULT_BACKOFF
-                logger.warning("429 from Companies House; retrying in %.0fs", delay)
+                delay = float(retry_after) if retry_after else _DEFAULT_BACKOFF * attempt
+                logger.warning("HTTP %d from Companies House; retry %d in %.0fs",
+                               err.code, attempt, delay)
                 time.sleep(delay)
                 continue
             if err.code == 401:
@@ -246,6 +252,14 @@ def _get_json(path: str, api_key: str) -> dict:
             if err.code == 404:
                 raise CompaniesHouseError(f"not found: {path}", status=404) from err
             raise CompaniesHouseError(f"HTTP {err.code} for {path}", status=err.code) from err
+        except urllib.error.URLError as err:
+            # Connection reset / DNS / timeout — also transient over a long run.
+            if attempt < _MAX_RETRIES:
+                logger.warning("network error from Companies House; retry %d: %s",
+                               attempt, err)
+                time.sleep(_DEFAULT_BACKOFF * attempt)
+                continue
+            raise CompaniesHouseError(f"network error for {path}: {err}") from err
     raise CompaniesHouseError(f"giving up after {_MAX_RETRIES} attempts: {path}")
 
 

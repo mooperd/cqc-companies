@@ -292,16 +292,20 @@ def enrich_all(
     logger.info("enriching %d providers (env=%s)", len(providers), ch.resolve_env())
 
     totals = {"providers": 0, "persons_created": 0, "roles_created": 0,
-              "roles_updated": 0, "not_found": 0}
+              "roles_updated": 0, "not_found": 0, "errors": 0}
     for i, provider in enumerate(providers, 1):
         number = (provider.companies_house_number or "").strip()
+        # Skip a single provider on any CH error (404 unknown company, or a
+        # transient error that survived _get_json's retries) rather than aborting
+        # the whole run. A bad key raises RuntimeError, which propagates (abort).
         try:
             officers = ch.fetch_officers(number)
+            pscs = ch.fetch_psc(number)  # 404 → [] inside fetch_psc
         except ch.CompaniesHouseError as err:
-            totals["not_found"] += 1
+            bucket = "not_found" if err.status == 404 else "errors"
+            totals[bucket] += 1
             logger.warning("skip provider %s (CH %s): %s", provider.id, number, err)
             continue
-        pscs = ch.fetch_psc(number)  # 404 → [] inside fetch_psc
 
         stats = sync_provider(session, provider.id, officers, pscs)
         totals["providers"] += 1

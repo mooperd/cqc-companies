@@ -164,6 +164,30 @@ def _restore_env(saved):
             os.environ[name] = value
 
 
+def test_get_json_retries_5xx():
+    import io
+    import urllib.error
+
+    calls = []
+
+    def fake_urlopen(req, timeout=60):
+        calls.append(1)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(req.full_url, 502, "Bad Gateway", {}, None)
+        return io.BytesIO(b'{"items": []}')
+
+    orig_open, orig_sleep = ch.urllib.request.urlopen, ch.time.sleep
+    ch.urllib.request.urlopen = fake_urlopen
+    ch.time.sleep = lambda _s: None
+    try:
+        assert ch._get_json("/x", "key") == {"items": []}
+        assert len(calls) == 2, "should retry the 502 once then succeed"
+    finally:
+        ch.urllib.request.urlopen = orig_open
+        ch.time.sleep = orig_sleep
+    print("OK — _get_json retries transient 5xx then succeeds")
+
+
 def test_resolve_api_key_missing():
     saved = _clear_ch_env()
     try:
@@ -220,6 +244,7 @@ if __name__ == "__main__":
     test_parse_officers_payload()
     test_parse_psc_payload()
     test_parse_date()
+    test_get_json_retries_5xx()
     test_fetch_officers_paginates()
     test_resolve_api_key_missing()
     test_env_selects_key_and_base()
