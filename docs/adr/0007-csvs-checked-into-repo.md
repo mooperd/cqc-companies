@@ -1,6 +1,6 @@
 # ADR 0007 — CQC source CSVs checked into the repository
 
-**Status:** Accepted (2025-08-28). Amended 2026-05-19 — see Amendment below; refresh is no longer manual.
+**Status:** Accepted (2025-08-28). Amended 2026-05-19 — see Amendment below; refresh is no longer manual. **Reframed 2026-06-21 by [ADR 0015](0015-data-freshness-strategy.md):** the committed CSVs become an immutable *seed* — the monthly refresh no longer rewrites them; it appends git-committed change-event files and the DB is rebuilt by replaying them.
 
 **TL;DR.** In the context of needing a reproducible "fresh DB" import for development, demos, and AKS rollouts, facing zero existing object storage infrastructure and CSVs that are public CQC data anyway, we chose to commit `output.csv` (≈30 MB) and `Locations.csv` (≈20 MB) directly to the git repository, accepting bloat in `git clone` and the absence of a refresh-from-source workflow.
 

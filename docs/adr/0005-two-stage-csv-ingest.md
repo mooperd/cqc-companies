@@ -1,6 +1,6 @@
 # ADR 0005 — Two-stage CSV ingest keyed on CQC IDs
 
-**Status:** Accepted (2025-08-28).
+**Status:** Accepted (2025-08-28). **Reframed 2026-06-21 by [ADR 0015](0015-data-freshness-strategy.md):** these importers now load the one-time *seed*; ongoing changes arrive as git-committed change-event files replayed/applied into the DB projection (not full re-imports).
 
 **TL;DR.** In the context of CQC publishing two complementary CSVs — the "providers" extract (`output.csv`) and the "locations" extract (`Locations.csv`) — each with overlapping but non-identical columns, we chose to ingest them in two passes (`import_records.py` then `enrich_locations.py`), joining on CQC's own Provider ID and Location ID, to achieve clean separation between "what we get on import" and "what gets enriched onto existing rows" at the cost of carrying two import scripts that must agree on the schema.
 

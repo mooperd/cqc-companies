@@ -24,6 +24,7 @@ These first ten ADRs were reverse-engineered from the codebase as of `2fe0977` (
 | 0012 | [CRM data model: Person, Interaction, User (replacing Contact)](0012-crm-person-interaction-user-model.md) | Accepted 2026-06-20 (Person reshaped by 0014) |
 | 0013 | [Companies House as the first director-identification source](0013-companies-house-source.md) | Proposed (amended 2026-06-21: + PSC) |
 | 0014 | [Person/Role model with cross-source identity correlation](0014-person-role-correlation-model.md) | Proposed |
+| 0015 | [Change-event files as the source of truth; the database as a projection](0015-data-freshness-strategy.md) | Proposed |
 
 ## Format
 
