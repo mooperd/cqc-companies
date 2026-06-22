@@ -2,6 +2,7 @@
 __pycache__/
 .vscode/
 client_secret*
+*.swp
 
 # Secrets — committed historically as a placeholder; now untracked.
 # Copy .env.example to .env and fill in real values locally. Local override
