@@ -73,7 +73,12 @@ class Facility(db.Model):
     caring_rating = db.Column(db.String(50))
     responsive_rating = db.Column(db.String(50))
     well_led_rating = db.Column(db.String(50))
-    
+
+    # Lifecycle (ADR 0015). CQC removals are per-location, so soft-delete lives
+    # here; Provider.active is derived as "has any active facility".
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    removed_at = db.Column(db.DateTime)
+
     provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'), nullable=False, index=True)
 
 # A correlated human — one record per person across Companies House's two
