@@ -55,18 +55,22 @@ full rows, removed id+name). Seed CSVs are no longer written. `write_csv`
 (added/changed/removed), apply, and the **seed + replay(delta) == new snapshot**
 invariant. (Live end-to-end runs when the next bulk lands / via WS5.)
 
-### WS3 — Apply/replay engine (event files → DB projection)
+### WS3 — Apply engine (event files → DB projection)
 
-**Status:** Open.
+**Status:** Shipped (2026-06-22). WS3a (Facility.active), WS3b (shared
+`cqc_mapping`; importers keyed on `cqc_provider_id`), WS3c (`apply_events`).
 
-`apply_events`: **replay** (rebuild — seed import then all files in (source,date)
-order) and **apply-latest** (incremental — files not in `applied_event_file`).
-Upsert added/changed by key; soft-delete removed; write `change_events` rows.
-Idempotent/resumable. Seed bulk-import reuses
-[ADR 0005](../adr/0005-two-stage-csv-ingest.md) importers.
+`apply_events.apply_pending` applies cqc-*.json files not in the
+`applied_event_file` ledger, in date order (idempotent/resumable). Per file:
+upsert Provider+Facility by id via `cqc_mapping`, enrich from locations rows,
+soft-delete `removed` facilities, derive `Provider.active = has any active
+facility`, and write a `ChangeEvent` per change. Seed still bulk-imported once
+([ADR 0005](../adr/0005-two-stage-csv-ingest.md), now sharing `cqc_mapping`).
 
-**Exit:** rebuild-from-scratch and incremental-apply produce identical DB state;
-re-apply is a no-op; a removed provider is soft-deleted.
+**Exit:** ✓ `test_apply_events.py` — add/change/remove, enrich, soft-delete,
+provider deactivation, ChangeEvents, and ledger idempotency, on SQLite.
+*(Full `--rebuild` mode — seed import then replay all — deferred; apply_pending
++ the existing seed importers cover it manually.)*
 
 ### WS4 — Companies House change-event file producer
 

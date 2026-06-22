@@ -61,6 +61,7 @@ jobs:
           import import_records
           import enrich_locations
           import cqc_refresh  # bulk-download pipeline; stdlib-only
+          import apply_events  # change-event files -> DB projection (ADR 0015)
           import companies_house  # CH officers + PSC client; stdlib-only
           import enrich_people  # CH officers + PSC -> Person/Role (WS2/WS4)
 
