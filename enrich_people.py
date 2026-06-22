@@ -24,18 +24,24 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import logging
 import os
 import re
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from sqlalchemy import create_engine, exists
 from sqlalchemy.orm import Session
 
 import companies_house as ch
-from model import Person, Provider, Role, db
+# Canonical change-event directory (ADR 0015): the CH producer writes one
+# companies-house-YYYY-MM-DD.json here per run, alongside cqc_refresh's cqc-*.json.
+# Shared with the applier rather than re-declared so the location has one home.
+from apply_events import CHANGES_DIR
+from model import ChangeEvent, Person, Provider, Role, db
 
 logger = logging.getLogger(__name__)
 
@@ -202,10 +208,105 @@ def _supersedes(a: dict, b: dict) -> bool:
     return (a["start_date"] or _MIN_DATE) >= (b["start_date"] or _MIN_DATE)
 
 
-def sync_provider(session, provider_id: int, officers, pscs) -> dict[str, int]:
+# --- Change-event construction (ADR 0015 WS4) ---------------------------------
+
+# Role fields whose change between two syncs is materially a "role changed".
+_STATE_FIELDS = ("role_type", "start_date", "end_date", "control_nature", "confidence")
+
+
+def _iso(value: dt.date | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _role_state(role_obj: Role) -> dict:
+    """The mutable facts of a persisted Role, for before/after change detection."""
+    return {f: getattr(role_obj, f) for f in _STATE_FIELDS}
+
+
+def _isoify(state: dict) -> dict:
+    return {k: (v.isoformat() if isinstance(v, dt.date) else v) for k, v in state.items()}
+
+
+def _apply_role_fields(role_obj: Role, role: dict) -> None:
+    role_obj.role_type = role["role_type"]
+    role_obj.confidence = CONFIDENCE
+    role_obj.start_date = role["start_date"]
+    role_obj.end_date = role["end_date"]
+    role_obj.control_nature = role["control_nature"]
+
+
+def _person_payload(person: Person) -> dict:
+    return {
+        "name": person.name,
+        "surname": person.surname,
+        "forenames": person.forenames,
+        "dob_year": person.dob_year,
+        "dob_month": person.dob_month,
+        "nationality": person.nationality,
+    }
+
+
+def _role_payload(role: dict) -> dict:
+    return {
+        "role_type": role["role_type"],
+        "source": role["source"],
+        "start_date": _iso(role["start_date"]),
+        "end_date": _iso(role["end_date"]),
+        "control_nature": role["control_nature"],
+    }
+
+
+def _role_dict_from_orm(role_obj: Role) -> dict:
+    """A role dict (the shape `_role_from_officer/psc` produce) from a stored Role,
+    so the seed dump and the live diff share one event format."""
+    return {
+        "role_type": role_obj.role_type,
+        "source": role_obj.source,
+        "start_date": role_obj.start_date,
+        "end_date": role_obj.end_date,
+        "control_nature": role_obj.control_nature,
+    }
+
+
+def _role_change(observed_at, change_type, provider, person, role_obj, role: dict,
+                 details: dict | None = None):
+    """Build the (file_event, change_event) pair for one role change.
+    `effective_date` is the date the change took effect at source — the end date
+    for an ending, else the start date. The DB `ChangeEvent` is None when
+    `observed_at` is None (the seed dump and count-only syncs emit the file event
+    but write no projection row)."""
+    eff = role["end_date"] if change_type == "role_ended" else role["start_date"]
+    payload = _role_payload(role)
+    file_event = {
+        "change_type": change_type,
+        "source": role["source"],
+        "effective_date": _iso(eff),
+        "provider": {"cqc_provider_id": provider.cqc_provider_id, "name": provider.name},
+        "person": _person_payload(person),
+        "role": payload,
+        "details": details or {},
+    }
+    change_event = None
+    if observed_at is not None:
+        change_event = ChangeEvent(
+            observed_at=observed_at, effective_date=eff, source=role["source"],
+            change_type=change_type, provider_id=provider.id, person_id=person.id,
+            role_id=role_obj.id, details={"role": payload, **(details or {})},
+        )
+    return file_event, change_event
+
+
+def sync_provider(session, provider: Provider, officers, pscs, observed_at=None) -> dict:
     """Correlate a provider's individual officers + PSCs into Person rows and
     upsert their Roles. Idempotent on (person, provider, source); only touches
-    companies_house:* roles. Caller commits."""
+    companies_house:* roles. Caller commits.
+
+    Returns counts plus an `events` list of change-event dicts (role_appointed /
+    role_ended / role_changed) for the canonical file. When `observed_at` is
+    given, a matching `ChangeEvent` row is also written to the DB projection — so
+    enrich's live walk both emits the file and updates the queryable table; the
+    tests that only want correlation counts omit it."""
+    provider_id = provider.id
     records = [(identity_from_officer(o), _role_from_officer(o))
                for o in officers if is_individual_director(o)]
     records += [(identity_from_psc(p), _role_from_psc(p))
@@ -213,11 +314,13 @@ def sync_provider(session, provider_id: int, officers, pscs) -> dict[str, int]:
 
     persons_created = 0
     best: dict[tuple[int, str], dict] = {}  # (person_id, source) -> best role
+    persons_by_id: dict[int, Person] = {}
     for identity, role in records:
         if not identity.surname:
             continue  # unparseable name — skip rather than create a junk Person
         person, created = find_or_create_person(session, identity)
         persons_created += int(created)
+        persons_by_id[person.id] = person
         key = (person.id, role["source"])
         if key not in best or _supersedes(role, best[key]):
             best[key] = role
@@ -232,24 +335,40 @@ def sync_provider(session, provider_id: int, officers, pscs) -> dict[str, int]:
         )
     }
     roles_created = roles_updated = 0
+    events: list[dict] = []
     for (person_id, source), role in best.items():
         existing_role = existing.get((person_id, source))
+        person = persons_by_id[person_id]
         if existing_role is None:
             existing_role = Role(person_id=person_id, provider_id=provider_id, source=source)
             session.add(existing_role)
+            _apply_role_fields(existing_role, role)
+            session.flush()  # assign role.id for the ChangeEvent FK
             roles_created += 1
+            file_event, change_event = _role_change(
+                observed_at, "role_appointed", provider, person, existing_role, role)
         else:
+            before = _role_state(existing_role)
+            _apply_role_fields(existing_role, role)
+            after = _role_state(existing_role)
+            if before == after:
+                continue  # genuine no-op re-sync — no change, no event
             roles_updated += 1
-        existing_role.role_type = role["role_type"]
-        existing_role.confidence = CONFIDENCE
-        existing_role.start_date = role["start_date"]
-        existing_role.end_date = role["end_date"]
-        existing_role.control_nature = role["control_nature"]
+            change_type = ("role_ended"
+                           if before["end_date"] is None and after["end_date"] is not None
+                           else "role_changed")
+            details = {"before": _isoify(before), "after": _isoify(after)}
+            file_event, change_event = _role_change(
+                observed_at, change_type, provider, person, existing_role, role, details)
+        events.append(file_event)
+        if change_event is not None:
+            session.add(change_event)
 
     return {
         "persons_created": persons_created,
         "roles_created": roles_created,
         "roles_updated": roles_updated,
+        "events": events,
     }
 
 
@@ -278,52 +397,146 @@ def providers_with_ch_number(session, limit: int | None = None, skip_enriched: b
     return query.all()
 
 
+def _should_repoll(provider: Provider, latest_filing_date: dt.date | None) -> bool:
+    """Whether to re-fetch officers+PSC for this provider (ADR 0015 WS4). The
+    cheap filing-history call gates the expensive re-poll: poll iff we've never
+    successfully enriched it (the never-checked / previously-errored providers),
+    or a newer officer/PSC filing has landed than our stored watermark."""
+    if provider.ch_enriched_at is None:
+        return True  # never enriched, or last attempt errored — always retry
+    if latest_filing_date is None:
+        return False  # no officer/PSC filings on record; nothing could have changed
+    if not provider.ch_filing_watermark:
+        return True  # enriched before WS4 existed — re-poll once to set a watermark
+    # ISO dates sort lexically, so compare the strings directly — no parse needed.
+    return latest_filing_date.isoformat() > provider.ch_filing_watermark
+
+
+def _event_file_path(observed_at: dt.datetime, out_dir: Path = CHANGES_DIR) -> Path:
+    return out_dir / f"companies-house-{observed_at.date():%Y-%m-%d}.json"
+
+
+def write_event_file(events: list[dict], observed_at: dt.datetime,
+                     out_dir: Path = CHANGES_DIR) -> Path:
+    """Write the run's role change-events as the canonical companies-house-*.json
+    (ADR 0015): the DB is a projection of this file."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = _event_file_path(observed_at, out_dir)
+    payload = {
+        "generated_at": observed_at.isoformat(),
+        "source": "companies_house",
+        "events": events,
+    }
+    path.write_text(json.dumps(payload, indent=1), encoding="utf-8")
+    return path
+
+
+def build_seed_events(session) -> list[dict]:
+    """Every current Companies House Role as a `role_appointed` event — the first
+    companies-house-*.json (the seed). File-only: the roles already exist in the
+    DB from the live enrichment run, so this serialises the baseline rather than
+    mutating anything."""
+    rows = (
+        session.query(Role, Person, Provider)
+        .join(Person, Role.person_id == Person.id)
+        .join(Provider, Role.provider_id == Provider.id)
+        .filter(Role.source.like("companies_house%"))
+        .order_by(Provider.id, Role.id)
+    )
+    return [
+        _role_change(None, "role_appointed", provider, person, role,
+                     _role_dict_from_orm(role))[0]
+        for role, person, provider in rows
+    ]
+
+
 def enrich_all(
     session,
     limit: int | None = None,
     sleep: float = _DEFAULT_SLEEP,
     dry_run: bool = False,
     skip_enriched: bool = False,
+    out_dir: Path = CHANGES_DIR,
 ) -> dict[str, int]:
-    """Walk providers with a CH number; for each, fetch officers + PSCs (WS1) and
-    sync Person+Role (WS2). Commits in batches; a 404 on officers skips that
-    provider, a bad key aborts. Returns aggregate counts."""
+    """Walk providers with a CH number (ADR 0015 WS4). For each, one cheap
+    filing-history call; only when a newer officer/PSC filing has landed (or the
+    provider was never successfully enriched) do we re-fetch officers+PSC and
+    sync Person+Role, emitting role change-events. Writes the run's events to a
+    companies-house-*.json and updates each polled provider's watermark +
+    ch_enriched_at. Commits in batches; a 404 skips that provider, a bad key
+    aborts."""
     providers = providers_with_ch_number(session, limit, skip_enriched=skip_enriched)
-    logger.info("enriching %d providers (env=%s)", len(providers), ch.resolve_env())
+    observed_at = dt.datetime.now(dt.timezone.utc)
+    logger.info("checking %d providers (env=%s)", len(providers), ch.resolve_env())
 
-    totals = {"providers": 0, "persons_created": 0, "roles_created": 0,
-              "roles_updated": 0, "not_found": 0, "errors": 0}
+    totals = {"checked": 0, "repolled": 0, "skipped_unchanged": 0,
+              "persons_created": 0, "roles_created": 0, "roles_updated": 0,
+              "events": 0, "not_found": 0, "errors": 0}
+    all_events: list[dict] = []
     for i, provider in enumerate(providers, 1):
-        number = (provider.companies_house_number or "").strip()
-        # Skip a single provider on any CH error (404 unknown company, or a
-        # transient error that survived _get_json's retries) rather than aborting
-        # the whole run. A bad key raises RuntimeError, which propagates (abort).
+        # One pacing sleep per provider regardless of which branch we exit on
+        # (rate-limit pacing); the `finally` runs before each `continue`.
         try:
-            officers = ch.fetch_officers(number)
-            pscs = ch.fetch_psc(number)  # 404 → [] inside fetch_psc
-        except ch.CompaniesHouseError as err:
-            bucket = "not_found" if err.status == 404 else "errors"
-            totals[bucket] += 1
-            logger.warning("skip provider %s (CH %s): %s", provider.id, number, err)
-            continue
+            number = (provider.companies_house_number or "").strip()
+            totals["checked"] += 1
+            # Cheap gate: one filing-history call. A 404 here means an unknown or
+            # dissolved company — skip it (no company left to poll). A transient
+            # error that survived retries also skips; a bad key (401) raises
+            # RuntimeError and aborts the whole run.
+            try:
+                filings = ch.fetch_filing_history(number)
+            except ch.CompaniesHouseError as err:
+                totals["not_found" if err.status == 404 else "errors"] += 1
+                logger.warning("skip provider %s (CH %s, filing-history): %s",
+                               provider.id, number, err)
+                continue
 
-        stats = sync_provider(session, provider.id, officers, pscs)
-        totals["providers"] += 1
-        for k in ("persons_created", "roles_created", "roles_updated"):
-            totals[k] += stats[k]
+            latest = ch.latest_relevant_filing_date(filings)
+            if not _should_repoll(provider, latest):
+                totals["skipped_unchanged"] += 1
+                continue
 
-        if i % _COMMIT_EVERY == 0:
-            if not dry_run:
-                session.commit()
-            logger.info("  ...%d/%d providers; %s", i, len(providers), totals)
-        if sleep:
-            time.sleep(sleep)
+            # A newer officer/PSC filing (or never enriched) — re-poll the heavy
+            # endpoints and diff into role change-events.
+            try:
+                officers = ch.fetch_officers(number)
+                pscs = ch.fetch_psc(number)  # 404 → [] inside fetch_psc
+            except ch.CompaniesHouseError as err:
+                totals["not_found" if err.status == 404 else "errors"] += 1
+                logger.warning("skip provider %s (CH %s): %s", provider.id, number, err)
+                continue
+
+            stats = sync_provider(session, provider, officers, pscs, observed_at=observed_at)
+            all_events.extend(stats["events"])
+            totals["repolled"] += 1
+            totals["events"] += len(stats["events"])
+            for k in ("persons_created", "roles_created", "roles_updated"):
+                totals[k] += stats[k]
+
+            # Mark freshness: we polled now, and advance the watermark to the
+            # latest officer/PSC filing so unchanged future runs skip it.
+            provider.ch_enriched_at = observed_at
+            if latest is not None:
+                provider.ch_filing_watermark = latest.isoformat()
+
+            if i % _COMMIT_EVERY == 0:
+                if not dry_run:
+                    session.commit()
+                logger.info("  ...%d/%d checked; %s", i, len(providers), totals)
+        finally:
+            if sleep:
+                time.sleep(sleep)
 
     if dry_run:
         session.rollback()
-        logger.info("--dry-run: rolled back, no changes persisted")
+        logger.info("--dry-run: rolled back, no changes persisted, no file written")
     else:
         session.commit()
+        if all_events:
+            path = write_event_file(all_events, observed_at, out_dir)
+            logger.info("wrote %s — %d role events", path, len(all_events))
+        else:
+            logger.info("no role changes this run — no event file written")
     return totals
 
 
@@ -341,6 +554,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--skip-enriched", action="store_true",
         help="skip providers that already have CH roles (resume a run)",
+    )
+    p.add_argument(
+        "--seed", action="store_true",
+        help="write the seed companies-house-*.json (all current CH roles as "
+             "role_appointed); no API calls, no DB changes",
     )
     return p
 
@@ -361,6 +579,12 @@ def main(argv: list[str] | None = None) -> int:
     db.metadata.create_all(engine)
 
     with Session(engine) as session:
+        if args.seed:
+            observed_at = dt.datetime.now(dt.timezone.utc)
+            events = build_seed_events(session)
+            path = write_event_file(events, observed_at)
+            logger.info("seed: wrote %s — %d role events", path, len(events))
+            return 0
         totals = enrich_all(
             session,
             limit=args.limit,

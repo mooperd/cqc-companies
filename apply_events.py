@@ -152,7 +152,13 @@ def apply_cqc_file(session, payload: dict, observed_at) -> dict:
 
 
 def apply_pending(session, changes_dir: Path = CHANGES_DIR) -> dict:
-    """Apply every cqc-*.json not yet in the ledger, in date order. Idempotent."""
+    """Apply every cqc-*.json not yet in the ledger, in date order. Idempotent.
+
+    Note: companies-house-*.json files are produced AND applied inline by
+    enrich_people (WS4) — it writes the ChangeEvent rows as it polls, so it does
+    not glob them here. A standalone `apply_ch_file` (file → DB, with ledger
+    entries) for a from-scratch CH rebuild is deferred alongside the CQC
+    `--rebuild` path (see docs/plans/data-freshness.md WS3/WS4)."""
     applied = {f.filename for f in session.query(AppliedEventFile)}
     pending = sorted(p for p in changes_dir.glob("cqc-*.json") if p.name not in applied)
     totals = {"files": 0, "events": 0, "providers_deactivated": 0}

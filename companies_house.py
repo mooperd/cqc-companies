@@ -106,6 +106,15 @@ class PSC:
         return self.ceased_on is None
 
 
+@dataclass(frozen=True)
+class FilingHistoryEntry:
+    """One entry in a company's filing history — only the fields the freshness
+    check needs: the filing `category` and its `date`."""
+
+    category: str
+    date: dt.date | None
+
+
 class CompaniesHouseError(Exception):
     """A Companies House API request failed in a way the caller should handle.
 
@@ -169,6 +178,33 @@ def parse_officers_payload(payload: dict) -> list[Officer]:
 def parse_psc_payload(payload: dict) -> list[PSC]:
     """Map one /persons-with-significant-control page's `items` to `PSC`s."""
     return [_parse_psc(item) for item in payload.get("items", [])]
+
+
+# Filing-history categories that signal an officer or PSC change — the only ones
+# the freshness check (ADR 0015 WS4) cares about. Accounts, confirmation
+# statements, etc. are ignored so the watermark doesn't over-trigger.
+OFFICER_PSC_CATEGORIES = frozenset({"officers", "persons-with-significant-control"})
+
+
+def _parse_filing(item: dict) -> FilingHistoryEntry:
+    return FilingHistoryEntry(
+        category=(item.get("category") or "").strip(),
+        date=_parse_date(item.get("date")),
+    )
+
+
+def parse_filing_history_payload(payload: dict) -> list[FilingHistoryEntry]:
+    """Map one /filing-history page's `items` array to `FilingHistoryEntry`s."""
+    return [_parse_filing(item) for item in payload.get("items", [])]
+
+
+def latest_relevant_filing_date(entries: list[FilingHistoryEntry]) -> dt.date | None:
+    """The most recent filing date among officer/PSC-category entries — the
+    watermark used to decide whether a company needs re-polling (ADR 0015 WS4).
+    None when the company has filed nothing in those categories."""
+    dates = [e.date for e in entries
+             if e.category in OFFICER_PSC_CATEGORIES and e.date is not None]
+    return max(dates) if dates else None
 
 
 # --- HTTP ---------------------------------------------------------------------
@@ -329,6 +365,26 @@ def fetch_psc(
     return pscs
 
 
+def fetch_filing_history(
+    company_number: str,
+    api_key: str | None = None,
+) -> list[FilingHistoryEntry]:
+    """Fetch a company's filing history, following pagination.
+
+    This is the cheap gate WS4 calls before the heavier officers/PSC re-poll: a
+    404 (unknown or dissolved company) propagates as `CompaniesHouseError` so the
+    caller can skip that provider, mirroring how `fetch_officers` surfaces 404.
+
+    All categories are fetched and filtered locally (`latest_relevant_filing_date`)
+    rather than asking the API for a single category — most care companies have
+    well under one page of filings, so this stays a one-or-two request check;
+    `latest_relevant_filing_date` keeps only the officer/PSC ones.
+    """
+    key = resolve_api_key(api_key)
+    path = f"/company/{company_number.strip()}/filing-history"
+    return _fetch_all_pages(path, parse_filing_history_payload, key)
+
+
 # --- CLI ----------------------------------------------------------------------
 
 
@@ -373,6 +429,18 @@ def _cmd_psc(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_filing(args: argparse.Namespace) -> int:
+    logger.info("env=%s (%s)", resolve_env(), _api_base())
+    entries = fetch_filing_history(args.company_number)
+    latest = latest_relevant_filing_date(entries)
+    print(json.dumps(
+        [{"category": e.category, "date": e.date.isoformat() if e.date else None}
+         for e in entries], indent=2))
+    logger.info("%d filings; latest officer/PSC filing: %s",
+                len(entries), latest.isoformat() if latest else "none")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="companies_house",
@@ -389,6 +457,9 @@ def build_parser() -> argparse.ArgumentParser:
     psc = sub.add_parser("psc", help="fetch persons with significant control")
     psc.add_argument("company_number", help="Companies House number, e.g. 02518546")
     psc.add_argument("--active-only", action="store_true", help="exclude ceased PSCs")
+
+    filing = sub.add_parser("filing", help="fetch filing history + latest officer/PSC date")
+    filing.add_argument("company_number", help="Companies House number, e.g. 02518546")
 
     return p
 
@@ -407,7 +478,7 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     load_dotenv(".env.local", override=True)
 
-    handlers = {"officers": _cmd_officers, "psc": _cmd_psc}
+    handlers = {"officers": _cmd_officers, "psc": _cmd_psc, "filing": _cmd_filing}
     return handlers[args.cmd](args)
 
 

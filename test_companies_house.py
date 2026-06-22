@@ -99,6 +99,60 @@ def test_parse_psc_payload():
     print("OK — parse_psc_payload: kind, natures, DOB, active/ceased distinction")
 
 
+def test_filing_history_parse_and_latest():
+    page = {"items": [
+        {"category": "accounts", "date": "2024-09-30"},
+        {"category": "officers", "date": "2024-03-15"},
+        {"category": "confirmation-statement", "date": "2024-02-01"},
+        {"category": "persons-with-significant-control", "date": "2024-05-20"},
+        {"category": "officers", "date": "2023-01-01"},
+    ]}
+    entries = ch.parse_filing_history_payload(page)
+    assert len(entries) == 5
+    # The watermark is the newest officer/PSC filing — ignoring accounts (which
+    # is more recent but irrelevant) and confirmation statements.
+    assert ch.latest_relevant_filing_date(entries) == dt.date(2024, 5, 20)
+    # A company with no officer/PSC filings → no watermark.
+    only_accounts = ch.parse_filing_history_payload(
+        {"items": [{"category": "accounts", "date": "2024-09-30"}]})
+    assert ch.latest_relevant_filing_date(only_accounts) is None
+    assert ch.latest_relevant_filing_date([]) is None
+    print("OK — filing history: parse + latest officer/PSC date (ignores accounts)")
+
+
+def test_fetch_filing_history_paginates_and_404():
+    page1 = {"items": [{"category": "officers", "date": "2024-01-01"}] * 50}
+    page2 = {"items": [{"category": "officers", "date": "2024-06-01"}]}
+    calls = []
+
+    def fake_get_json(path, _key):
+        calls.append(path)
+        return page1 if "start_index=0" in path else page2
+
+    original = ch._get_json
+    ch._get_json = fake_get_json
+    try:
+        entries = ch.fetch_filing_history("00000000", api_key="dummy")
+        assert len(entries) == 51 and len(calls) == 2
+        assert ch.latest_relevant_filing_date(entries) == dt.date(2024, 6, 1)
+    finally:
+        ch._get_json = original
+
+    # A 404 (unknown/dissolved company) propagates so the caller can skip it.
+    def raise_404(_path, _key):
+        raise ch.CompaniesHouseError("not found", status=404)
+
+    ch._get_json = raise_404
+    try:
+        ch.fetch_filing_history("99999999", api_key="dummy")
+        assert False, "404 must propagate from fetch_filing_history"
+    except ch.CompaniesHouseError as err:
+        assert err.status == 404
+    finally:
+        ch._get_json = original
+    print("OK — fetch_filing_history: paginates; 404 propagates as the cheap-gate skip")
+
+
 def test_parse_date():
     assert ch._parse_date(None) is None
     assert ch._parse_date("") is None
@@ -243,6 +297,8 @@ def test_env_selects_key_and_base():
 if __name__ == "__main__":
     test_parse_officers_payload()
     test_parse_psc_payload()
+    test_filing_history_parse_and_latest()
+    test_fetch_filing_history_paginates_and_404()
     test_parse_date()
     test_get_json_retries_5xx()
     test_fetch_officers_paginates()

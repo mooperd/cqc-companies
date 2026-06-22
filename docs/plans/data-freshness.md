@@ -74,17 +74,28 @@ provider deactivation, ChangeEvents, and ledger idempotency, on SQLite.
 
 ### WS4 — Companies House change-event file producer
 
-**Status:** Open. (Extends `enrich_people.py`.)
+**Status:** Shipped (2026-06-22). (Extends `enrich_people.py` + `companies_house.py`.)
 
-Monthly: per provider with a CH number, one `filing-history` call; if the latest
-officer/PSC-category filing is newer than `ch_filing_watermark`, re-fetch
-officers+PSC, diff against current roles (from prior CH files / DB), emit
-`role_appointed|ended|changed` events to `data/changes/companies-house-YYYY-MM-DD.json`;
-update watermark + `ch_enriched_at`. The first file is the seed (current 155k
-roles as `*_added`). Never-checked/errored providers always polled.
+`companies_house.fetch_filing_history` + `latest_relevant_filing_date` (officer/PSC
+categories only) drive a cheap gate: `enrich_all` does one filing-history call per
+provider, and only when `_should_repoll` says so (never-enriched/errored, or a
+newer officer/PSC filing than `ch_filing_watermark`) re-fetches officers+PSC.
+`sync_provider` diffs against current roles and emits
+`role_appointed|ended|changed` events **and** `ChangeEvent` rows (produce + apply
+inline — it writes the projection as it polls), accumulated into
+`data/changes/companies-house-YYYY-MM-DD.json`; each polled provider's watermark +
+`ch_enriched_at` advance. `--seed` dumps the current 155k roles as the first
+file (file-only; roles already exist from the live run).
 
-**Exit:** a provider that filed an officer change is re-polled and emits the right
-events; an unchanged provider is skipped after the cheap check.
+A standalone `apply_ch_file` (companies-house-*.json → DB, with `applied_event_file`
+ledger entries) for a from-scratch CH rebuild is **deferred** alongside the CQC
+`--rebuild` path (WS3) — `apply_events.apply_pending` still globs `cqc-*.json` only.
+
+**Exit:** ✓ `test_enrich_people.py` / `test_companies_house.py` cover the
+filing-history parse/paginate/404, the `_should_repoll` gate, appointed/ended/
+changed/no-op events, the seed dump, and a full `enrich_all` integration
+(skip-unchanged + re-poll-changed + file write). A **live** API run (real key +
+real filings) is still unproven, same caveat as the CQC producer.
 
 ### WS5 — Simplify the refresh workflow
 
@@ -106,7 +117,7 @@ schedule (or its own workflow).
 - [ ] WS1 — change_events + markers in schema.
 - [ ] WS2 — CQC emits event files; seed not overwritten.
 - [ ] WS3 — replay rebuilds and apply-latest updates the DB identically; removals soft-deleted.
-- [ ] WS4 — CH filing-history poll emits role events for changed companies only.
+- [x] WS4 — CH filing-history poll emits role events for changed companies only.
 - [ ] WS5 — workflow commits event files.
 - [ ] ADR 0015 Proposed → Accepted.
 
