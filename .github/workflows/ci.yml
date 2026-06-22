@@ -57,6 +57,7 @@ jobs:
           # a typo'd import, or a missing dependency, this fails.
           import app
           import model
+          import cqc_mapping  # shared row->model field mappers (ADR 0015)
           import import_records
           import enrich_locations
           import cqc_refresh  # bulk-download pipeline; stdlib-only

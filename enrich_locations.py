@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from model import db, Provider, Facility
+import cqc_mapping as cm
 
 load_dotenv()
 
@@ -103,15 +104,6 @@ def create_missing_facility(session, location_id, location_name, provider_id):
     session.flush()
     return facility
 
-def parse_bed_count(beds_str):
-    """Parse bed count from string, return None if not a number"""
-    if not beds_str or beds_str.strip() == '':
-        return None
-    try:
-        return int(beds_str.strip())
-    except ValueError:
-        return None
-
 def enrich_facilities(csv_file, session, total_rows):
     facility_map = load_facilities_by_location_id(session)
     provider_map = load_providers_by_cqc_id(session)
@@ -156,13 +148,10 @@ def enrich_facilities(csv_file, session, total_rows):
                         session.rollback()
                         continue
 
-                # Persist the Companies House number CQC gives us (seed for
-                # future director enrichment — ADR 0013). Authoritative from
-                # CQC, so overwrite; idempotent across a provider's locations.
-                if provider:
-                    ch_number = row.get('Provider Companies House Number', '').strip()
-                    if ch_number:
-                        provider.companies_house_number = ch_number
+                # Persist the Companies House number CQC gives us (ADR 0013).
+                ch_number = cm.provider_companies_house_number(row)
+                if provider and ch_number:
+                    provider.companies_house_number = ch_number
 
                 # Find or create facility
                 facility = facility_map.get(location_id)
@@ -185,26 +174,9 @@ def enrich_facilities(csv_file, session, total_rows):
                         print(f"  Location ID not found and cannot create: {location_id}")
                     continue
                 
-                # Enrich facility with location data
-                facility.registered_manager = row.get('Registered manager', '').strip()
-                facility.location_uprn = row.get('Location UPRN', '').strip()
-                facility.location_telephone = row.get('Location telephone number', '').strip()
-                facility.location_web_address = row.get('Location Web Address', '').strip()
-                facility.primary_inspection_category = row.get('Primary inspection category', '').strip()
-                facility.care_home_beds = parse_bed_count(row.get('Care homes beds', ''))
-                facility.location_start_date = row.get('Location HSCA start date', '').strip()
-                facility.location_end_date = row.get('Location HSCA end date', '').strip()
-                facility.dormant = row.get('Dormant', '').strip()
-                facility.latest_overall_rating = row.get('Location Latest Overall Rating', '').strip()
-                facility.publication_date = row.get('Publication Date', '').strip()
-                facility.service_users_supported = row.get('Service users supported', '').strip()
-                facility.care_home_size_band = row.get('Size of care home (bands by number of beds)', '').strip()
-                facility.location_length_service_band = row.get('Location length of service (bands by number of years)', '').strip()
-                facility.safe_rating = row.get('Location safe rating', '').strip()
-                facility.effective_rating = row.get('Location effective rating', '').strip()
-                facility.caring_rating = row.get('Location caring rating', '').strip()
-                facility.responsive_rating = row.get('Location responsive rating', '').strip()
-                facility.well_led_rating = row.get('Location well-led rating', '').strip()
+                # Enrich facility with location data (shared mapper, ADR 0015).
+                for field, value in cm.facility_enrichment_fields(row).items():
+                    setattr(facility, field, value)
                 
                 enriched_count += 1
                 

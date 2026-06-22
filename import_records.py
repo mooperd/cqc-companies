@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from model import db, Provider, Facility
+import cqc_mapping as cm
 
 load_dotenv()
 
@@ -26,11 +27,12 @@ def count_csv_rows(csv_file):
         sys.exit(1)
 
 def load_all_providers(session):
-    """Load all existing providers into memory cache"""
+    """Cache existing provider ids keyed by CQC provider id (ADR 0015: providers
+    are identified by cqc_provider_id, the stable key the delta-apply also uses)."""
     print("Loading existing providers into cache...")
     start_time = time.time()
     providers = session.query(Provider).all()
-    cache = {provider.name: provider.id for provider in providers}
+    cache = {p.cqc_provider_id: p.id for p in providers if p.cqc_provider_id}
     elapsed = time.time() - start_time
     print(f"Loaded {len(cache)} existing providers in {elapsed:.2f}s")
     return cache
@@ -43,24 +45,15 @@ def bulk_create_providers(session, new_providers):
     print(f"Bulk creating {len(new_providers)} new providers...")
     start_time = time.time()
     
-    provider_objects = []
-    for name, data in new_providers.items():
-        provider = Provider(
-            name=name,
-            cqc_provider_id=data['cqc_provider_id'],
-            website=data['website']
-        )
-        provider_objects.append(provider)
-    
+    provider_objects = [Provider(**fields) for fields in new_providers.values()]
+
     try:
         session.add_all(provider_objects)
         session.flush()
-        
-        # Update cache with new provider IDs
-        provider_cache = {}
-        for provider in provider_objects:
-            provider_cache[provider.name] = provider.id
-        
+
+        # Update cache with new provider ids, keyed by cqc_provider_id.
+        provider_cache = {p.cqc_provider_id: p.id for p in provider_objects}
+
         elapsed = time.time() - start_time
         print(f"Created {len(provider_objects)} providers in {elapsed:.2f}s")
         return provider_cache
@@ -71,26 +64,7 @@ def bulk_create_providers(session, new_providers):
         return {}
 
 def create_facility(row, provider_id):
-    return Facility(
-        name=row.get('Name', '').strip(),
-        address_1=row.get('Address 1', '').strip(),
-        address_2=row.get('Address 2', '').strip(),
-        town_city=row.get('Town/City', '').strip(),
-        county=row.get('County', '').strip(),
-        postcode=row.get('Postcode', '').strip(),
-        phone_number=row.get('Phone number', '').strip(),
-        cqc_location_id=row.get('CQC Location ID (for office use only)', '').strip(),
-        website=row.get('Website', '').strip(),
-        local_authority=row.get('Local authority', '').strip(),
-        region=row.get('Region', '').strip(),
-        report_publication_date=row.get('Report publication date', '').strip(),
-        url=row.get('URL', '').strip(),
-        also_known_as=row.get('Also known as', '').strip(),
-        specialisms_services=row.get('Specialisms/services', '').strip(),
-        service_types=row.get('Service types', '').strip(),
-        email_address='',
-        provider_id=provider_id
-    )
+    return Facility(**cm.facility_fields(row), provider_id=provider_id)
 
 def commit_batch(session, row_number, batch_start_time):
     try:
@@ -121,13 +95,9 @@ def process_csv_file(csv_file, session, total_rows):
         with open(csv_file, 'r', encoding='utf-8') as f:
             csv_reader = csv.DictReader(f)
             for row in csv_reader:
-                provider_name = row.get('Provider name', '').strip()
-                if provider_name and provider_name not in providers_cache:
-                    if provider_name not in new_providers:
-                        new_providers[provider_name] = {
-                            'cqc_provider_id': row.get('CQC Provider ID (for office use only)', '').strip() or None,
-                            'website': row.get('Website', '').strip()
-                        }
+                pid = cm.directory_provider_key(row)
+                if pid and pid not in providers_cache and pid not in new_providers:
+                    new_providers[pid] = cm.provider_fields(row)
     except IOError as e:
         print(f"ERROR: Failed to read CSV file: {e}")
         sys.exit(1)
@@ -147,12 +117,12 @@ def process_csv_file(csv_file, session, total_rows):
             csv_reader = csv.DictReader(f)
             
             for i, row in enumerate(csv_reader, 1):
-                provider_name = row.get('Provider name', '').strip()
-                if not provider_name or provider_name not in providers_cache:
+                pid = cm.directory_provider_key(row)
+                if not pid or pid not in providers_cache:
                     skipped_rows += 1
                     continue
-                
-                facility = create_facility(row, providers_cache[provider_name])
+
+                facility = create_facility(row, providers_cache[pid])
                 facilities_batch.append(facility)
                 imported_facilities += 1
                 
