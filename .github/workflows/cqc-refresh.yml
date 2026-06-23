@@ -1,18 +1,25 @@
-name: Refresh CQC CSVs
+name: Refresh CQC change-event files
 
 # Daily off-peak poll. CQC publishes monthly, so most days this exits in
-# seconds with "nothing changed". When a new bulk file lands, the job
-# regenerates the committed CSVs and opens a PR against whichever branch
-# triggered the run (cron on `main` → PR against `main`; workflow_dispatch
-# from a feature branch → PR against that branch, for testing).
+# seconds with "nothing changed". When a new bulk lands, cqc_refresh diffs it
+# against the committed seed (output.csv / Locations.csv) plus the prior delta
+# files and writes an append-only change-event file
+# data/changes/cqc-YYYY-MM-DD.json (ADR 0015) — it no longer rewrites the 40 MB
+# CSVs. This job commits that small delta (plus the refresh-state file) and
+# opens a PR.
 #
-# The PR lives on ONE stable, bot-owned branch (`data/refresh`), rebuilt
-# from the base ref and force-pushed each run. That keeps at most one open
-# refresh PR at a time, rather than one orphaned branch per day.
+# The database is a projection rebuilt from these files (apply_events) wherever
+# the app runs; CI only produces the files. The Companies House producer
+# (enrich_people) needs a live DB + API key, so it runs locally / at deploy time
+# rather than here (ADR 0015 §7, deferred to the deploy phase).
+#
+# The PR lives on ONE stable, bot-owned branch (`data/refresh`), rebuilt from
+# the base ref and force-pushed each run. That keeps at most one open refresh PR
+# at a time, rather than one orphaned branch per day.
 #
 # See:
-#   docs/adr/0007-csvs-checked-into-repo.md (Amendment 2026-05-19)
-#   docs/plans/cqc-bulk-ingest.md (WS5 + WS6)
+#   docs/adr/0015-data-freshness-strategy.md
+#   docs/plans/data-freshness.md (WS2 producer, WS5 workflow)
 on:
   schedule:
     - cron: "17 4 * * *"
@@ -48,22 +55,21 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run refresh
-        # cqc_refresh.py edits output.csv, Locations.csv, and
-        # data/cqc-refresh-state.json in place when anything changed.
-        # The script exits 0 either way; we detect "did anything change"
-        # via `git diff` below.
-        run: python cqc_refresh.py refresh
+        # Emits data/changes/cqc-YYYY-MM-DD.json (only when records actually
+        # changed) and updates data/cqc-refresh-state.json. The seed CSVs are
+        # NOT rewritten. Tee the log so the PR-body step can quote the summary.
+        run: python cqc_refresh.py refresh 2>&1 | tee /tmp/refresh.log
 
       - name: Detect changes
         id: changes
         run: |
-          if git diff --quiet -- output.csv Locations.csv data/; then
+          if [ -n "$(git status --porcelain -- data/changes data/cqc-refresh-state.json)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Detected a new change-event file / state update — preparing PR."
+            git status --porcelain -- data/changes data/cqc-refresh-state.json
+          else
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Nothing changed since the last refresh — exiting clean."
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Detected changes — preparing PR."
-            git diff --shortstat -- output.csv Locations.csv data/
           fi
 
       - name: Open / update refresh PR
@@ -77,60 +83,59 @@ jobs:
           : "${GH_TOKEN:?GH_TOKEN unset (workflow misconfigured)}"
 
           DATE=$(date -u +%Y-%m-%d)
-          # One stable, bot-owned branch — NOT one per day. Reusing it means
-          # at most one open refresh PR at a time; the date only labels the
-          # PR title / commit, it does not fork a new branch each run.
+          # One stable, bot-owned branch — NOT one per day. Reusing it means at
+          # most one open refresh PR at a time; the date only labels the PR
+          # title / commit, it does not fork a new branch each run.
           BRANCH="data/refresh"
-          TITLE="data: refresh CSVs from CQC monthly bulk export ($DATE)"
+          TITLE="data: CQC change-event file ($DATE)"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Stash the regenerated files (including the newly-created state
-          # file if this is the first run) before resetting the branch.
-          # --include-untracked picks up data/cqc-refresh-state.json on
-          # first run when the data/ dir doesn't exist on the base ref.
+          # Stash the new delta + state before resetting the branch.
+          # --include-untracked picks up the brand-new dated event file (and the
+          # data/ dir itself on the very first run).
           git stash push --include-untracked -m "cqc-refresh" -- \
-            output.csv Locations.csv data/
+            data/changes data/cqc-refresh-state.json
 
-          # Always rebuild the refresh branch fresh from the trigger's base
-          # ref. If it already exists upstream (from a prior run whose PR
-          # hasn't merged), the later force-push replaces its content.
+          # Always rebuild the refresh branch fresh from the trigger's base ref.
+          # If it already exists upstream (from a prior run whose PR hasn't
+          # merged), the later force-push replaces its content.
           git fetch origin "$BASE_REF"
           git checkout -B "$BRANCH" "origin/$BASE_REF"
           git stash pop
 
           # Compose the PR body.
           {
-            echo "Automated refresh from CQC's monthly bulk downloads."
+            echo "Automated CQC change-event file from the monthly bulk diff (ADR 0015)."
             echo
             echo "Source (per ADR 0007 Amendment):"
             echo
             python cqc_refresh.py discover | sed 's/^/    /'
             echo
-            echo "Diff against \`$BASE_REF\`:"
+            echo "Change summary:"
             echo
             echo '```'
-            git diff --shortstat "origin/$BASE_REF" -- output.csv Locations.csv data/ || true
+            grep -E "wrote .*cqc-.*\.json|no record-level changes" /tmp/refresh.log \
+              || echo "(state updated; see committed files)"
             echo '```'
             echo
-            echo "Review the diff carefully — if CQC has changed column shape, the"
+            echo "The seed CSVs are unchanged — the DB projection is rebuilt from these"
+            echo "event files via \`apply_events\`. If CQC has changed column shape, the"
             echo "mapper in \`cqc_refresh.py\` needs updating before this is merged."
           } > /tmp/pr-body.md
 
-          git add output.csv Locations.csv data/cqc-refresh-state.json
+          git add data/changes data/cqc-refresh-state.json
           git commit -m "$TITLE"
-          # Plain --force (not --force-with-lease): this branch is rebuilt
-          # from the base ref every run and exclusively bot-owned, and the
+          # Plain --force (not --force-with-lease): this branch is rebuilt from
+          # the base ref every run and exclusively bot-owned, and the
           # concurrency group above serializes runs — so there is no
-          # unseen-concurrent-push to guard against, and --force-with-lease
-          # has no remote-tracking ref to lease against here anyway.
+          # unseen-concurrent-push to guard against, and --force-with-lease has
+          # no remote-tracking ref to lease against here anyway.
           git push --force -u origin "$BRANCH"
 
           if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
             echo "PR already open for $BRANCH — updating title and body."
-            # Refresh the title too: the reused branch keeps one long-lived PR,
-            # so without this the title sticks at the date it was first opened.
             gh pr edit "$BRANCH" --title "$TITLE" --body-file /tmp/pr-body.md
           else
             gh pr create --base "$BASE_REF" --head "$BRANCH" \
