@@ -55,7 +55,7 @@ discarded at import time. The Companies House public API is free, key-gated but
 without a meaningful rate limit, and returns directors with names, roles, and
 appointment/resignation dates — exactly the fields a `Person` row wants.
 
-LinkedIn-via-Phantombuster (Phase 3, ADR 0014) is paid, rate-limited, and
+LinkedIn-via-Phantombuster (Phase 3, ADR 0016) is paid, rate-limited, and
 carries GDPR/account-hygiene risk; it is the right tool for *non-director*
 influencers but the wrong one to lead with. Manual entry always works but
 doesn't scale to ~37k providers.

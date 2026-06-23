@@ -22,9 +22,11 @@ These first ten ADRs were reverse-engineered from the codebase as of `2fe0977` (
 | 0010 | [Hardcoded specialism / service-type filter taxonomy](0010-hardcoded-filter-taxonomy.md) | Accepted 2025-08-29 |
 | 0011 | [Defer authentication; remove the unwired `google_login.py`](0011-defer-authentication.md) | Accepted 2026-06-17 |
 | 0012 | [CRM data model: Person, Interaction, User (replacing Contact)](0012-crm-person-interaction-user-model.md) | Accepted 2026-06-20 (Person reshaped by 0014) |
-| 0013 | [Companies House as the first director-identification source](0013-companies-house-source.md) | Proposed (amended 2026-06-21: + PSC) |
-| 0014 | [Person/Role model with cross-source identity correlation](0014-person-role-correlation-model.md) | Proposed |
-| 0015 | [Change-event files as the source of truth; the database as a projection](0015-data-freshness-strategy.md) | Proposed |
+| 0013 | [Companies House as the first director-identification source](0013-companies-house-source.md) | Accepted 2026-06-23 (amended 2026-06-21: + PSC) |
+| 0014 | [Person/Role model with cross-source identity correlation](0014-person-role-correlation-model.md) | Accepted 2026-06-23 |
+| 0015 | [Change-event files as the source of truth; the database as a projection](0015-data-freshness-strategy.md) | Accepted 2026-06-23 |
+
+Next available number: **0016** (projected: Phantombuster/LinkedIn ingestion — see [`product-vision.md`](../product-vision.md) Phase 3). Numbers are assigned at write time; the roadmap's future numbers are projections, not reservations.
 
 ## Format
 

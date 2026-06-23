@@ -28,7 +28,7 @@ These are the design choices that scope the next 6–10 ADRs:
   - *Identification phantoms* (scrape) — Sales Nav Search Export, Company People Scraper, Profile Data. Lower risk; feed `Person` rows.
   - *Action phantoms* (write) — Auto-Connect, Message Sender, InMail Sender. Higher risk; record as `Interaction` rows of channel = `linkedin`.
 
-- **Companies House as the first identification source** (provisional — to be confirmed in ADR 0013). Reasoning: the HSCA bulk-download already gives us each provider's Companies House number, the Companies House API is free with no meaningful rate limit, and it returns legally-named directors with appointment dates. LinkedIn-via-Phantombuster fills the gap for non-director influencers but is paid and rate-limited.
+- **Companies House as the first identification source** (confirmed in [ADR 0013](adr/0013-companies-house-source.md), Accepted 2026-06-23). Reasoning: the HSCA bulk-download already gives us each provider's Companies House number, the Companies House API is free with no meaningful rate limit, and it returns legally-named directors with appointment dates. LinkedIn-via-Phantombuster fills the gap for non-director influencers but is paid and rate-limited.
 
 - **Approval surface = a `Task` table with notification channels layered on top.** Every pending decision is a database row (state, assignee, payload, FK to the related Interaction or phantom-run); WhatsApp / email / web UI are *views* over that table, not separate state stores. The web UI is the authoritative decision surface; channels push and reflect. Phase 4 starts with **email-only push** to lock in the channel-agnostic abstraction; WhatsApp via a Business API transport (Twilio is the likely choice) swaps in at Phase 6 once a public webhook endpoint exists.
 
@@ -48,10 +48,10 @@ Provider (organisation)             ← exists
   └─ User (us)                       ← NEW (introduced in ADR 0012)
        (auth identity + per-user secrets:
         linkedin_session_cookie, phantombuster_api_key, whatsapp_phone_number)
-  └─ phantom-run runtime model       ← TBD (Phase 3, ADR 0014)
+  └─ phantom-run runtime model       ← TBD (Phase 3, ADR 0016)
        (likely a persisted entity tracking kind, inputs, status,
-        outputs, credits spent — exact shape decided in 0014)
-  └─ Task                            ← NEW (introduced in ADR 0017)
+        outputs, credits spent — exact shape decided in 0016)
+  └─ Task                            ← NEW (introduced in ADR 0019)
        (kind: approve_outreach | review_reply | reauth_linkedin | …,
         state: pending | approved | rejected | expired | snoozed,
         payload (JSON), assignee FK User, created_at, decided_at,
@@ -71,10 +71,18 @@ We build the smallest meaningful slice first and add capability without invalida
 | **0. Foundation** | Local dev works end-to-end. CI runs integration tests against fixture data in a Postgres service container. PR #9 (CSV cron) merges. | — *(code only)* | ~1 session |
 | **1. Smallest CRM loop** | Log in, see a Provider, list known People (manually entered), log one Interaction against a Person. Folds WS6 from `initial-debt-and-questions.md` into this phase. Tracked in [`plans/crm-phase1.md`](plans/crm-phase1.md); `Person` shipped. | 0012 (Person + Interaction + User); app-auth ADR deferred (see ADR 0011) | ~2 sessions |
 | **2. Companies House enrichment** | Auto-populate `Person` rows for legally-registered directors of each provider. Manual entry still works alongside; conflict-resolution rules established when sources disagree. | 0013 (Companies House integration + source hierarchy) | ~1 session |
-| **3. Phantombuster identification** | Scrape LinkedIn for non-director influencers. Phantom-run runtime model. GDPR controller posture in place. **No outreach yet.** | 0014 (Phantombuster runtime + credit accounting), 0015 (GDPR posture), 0016 (LinkedIn account hygiene) | ~3-4 sessions (three ADRs + first real scrape + GDPR work) |
-| **4. First outreach channel** | Email approval-loop + email send. Locks in the channel-adapter + approval-loop abstractions. **The outreach-channel abstraction must be channel-agnostic from day one** — designed so Phase 5's LinkedIn-DM channel is an addition, not a rewrite. ADR 0017 also introduces the `Task` entity (see Data shape) — Tasks are the source of truth for any pending human decision; email/WhatsApp/web are notification views. | 0017 (Task entity + approval-loop state machine), 0018 (outreach channels — channel-agnostic) | ~2 sessions |
-| **5. LinkedIn DMs as second channel** | Per-user action phantoms send real outreach. Touchpoint counter visible per Person. Triggers when touchpoint=5 (decided in ADR 0011 — see Open Questions). | extensions of 0014, 0016, 0018 | ~1 session |
-| **6. WhatsApp swap** | Replace email approval with WhatsApp via the chosen transport (Twilio is the likely candidate, decided in this phase's ADR extension). Adds a public webhook receiver — reopens the deployment question. | extension of 0017; new ADR for public-endpoint hosting | ~1 session, plus WhatsApp Business onboarding wait |
+| **3. Phantombuster identification** | Scrape LinkedIn for non-director influencers. Phantom-run runtime model. GDPR controller posture in place. **No outreach yet.** | 0016 (Phantombuster/LinkedIn ingestion runtime + credit accounting), 0017 (GDPR posture), 0018 (LinkedIn account hygiene) | ~3-4 sessions (three ADRs + first real scrape + GDPR work) |
+| **4. First outreach channel** | Email approval-loop + email send. Locks in the channel-adapter + approval-loop abstractions. **The outreach-channel abstraction must be channel-agnostic from day one** — designed so Phase 5's LinkedIn-DM channel is an addition, not a rewrite. ADR 0019 also introduces the `Task` entity (see Data shape) — Tasks are the source of truth for any pending human decision; email/WhatsApp/web are notification views. | 0019 (Task entity + approval-loop state machine), 0020 (outreach channels — channel-agnostic) | ~2 sessions |
+| **5. LinkedIn DMs as second channel** | Per-user action phantoms send real outreach. Touchpoint counter visible per Person. Triggers when touchpoint=5 (decided in ADR 0011 — see Open Questions). | extensions of 0016, 0018, 0020 | ~1 session |
+| **6. WhatsApp swap** | Replace email approval with WhatsApp via the chosen transport (Twilio is the likely candidate, decided in this phase's ADR extension). Adds a public webhook receiver — reopens the deployment question. | extension of 0019; new ADR for public-endpoint hosting | ~1 session, plus WhatsApp Business onboarding wait |
+
+> **ADR numbers ≥ 0016 are *projected*, not reserved.** A number is only fixed
+> when the ADR is actually written, in sequence. The originally-projected numbers
+> drifted +2 once the Companies House work needed two unplanned ADRs (0014
+> Person/Role correlation, 0015 data-freshness) — so what this table once called
+> ADR 0014 (Phantombuster) is now 0016, and so on. Treat the future numbers here
+> as labels that may shift again if more unplanned ADRs land before Phase 3.
+> Written ADRs to date: 0001–0015 (see [`adr/README.md`](adr/README.md)).
 
 The right time to **decide on cloud infrastructure** is Phase 6 — when WhatsApp's inbound webhooks force the issue. Phases 0–5 run locally + in CI without a public endpoint, so the question stays parked.
 
@@ -102,13 +110,13 @@ These are flagged here so they're not forgotten as we move phase-by-phase. Each 
 - **Touchpoint definition + stop condition** — what counts as a touchpoint (sent message? delivered? replied? unanswered DM still ticks the counter?) and what happens at touchpoint 5 (stop, escalate to a human-only follow-up, mark dormant?). Decided in ADR 0011 (Phase 1) and refined in Phase 4.
 - **Team-internal privacy** — can User A see User B's Interactions with a Person? Default-open (everyone sees everything) is simplest; default-private has implications for the Interaction schema and the app's authz layer. Decided in ADR 0011 + ADR 0012 (Phase 1).
 - **Conflict resolution between identification sources** — what wins when Companies House says someone is no longer a director but LinkedIn still shows the role? Decided in ADR 0013 (Phase 2).
-- **Phantombuster cost budgeting** — per-user credit quotas, hard caps, what happens when a phantom run would exceed quota. Decided in ADR 0014 (Phase 3).
-- **Retention / erasure mechanics** — how a target's "delete me" request flows through `Person` + `Interaction` + cached scraped data. Decided in ADR 0015 (Phase 3).
-- **LinkedIn account warming policy** — how aggressive per-user phantoms can be before LinkedIn restricts the account. Decided in ADR 0016 (Phase 3).
-- **Approval-loop UX details** — exact WhatsApp template formats, what's quick-yes/no vs. what's "click here for the full draft", how multi-user approval works if one person drafts and another approves. Decided in ADR 0017 (Phase 4) and refined in Phase 6.
-- **Task assignment semantics** — does each Task get assigned to a specific User on creation (round-robin? based on which User the related Interaction belongs to?), or does it land in a team pool that anyone can claim? What's the snooze / re-assign UX? Decided in ADR 0017 (Phase 4).
-- **Task TTL and expiry** — do Tasks expire if not acted on? What's the default time-to-live, and what happens at expiry (auto-reject the underlying action, auto-escalate, just notify)? Decided in ADR 0017 (Phase 4).
-- **Task fanout policy** — when a Task is created, which channels notify (all of WhatsApp + email + web, or one based on user preference, or escalating sequence)? Decided in ADR 0017 (Phase 4) and refined alongside the WhatsApp swap.
+- **Phantombuster cost budgeting** — per-user credit quotas, hard caps, what happens when a phantom run would exceed quota. Decided in ADR 0016 (Phase 3).
+- **Retention / erasure mechanics** — how a target's "delete me" request flows through `Person` + `Interaction` + cached scraped data. Decided in ADR 0017 (Phase 3).
+- **LinkedIn account warming policy** — how aggressive per-user phantoms can be before LinkedIn restricts the account. Decided in ADR 0018 (Phase 3).
+- **Approval-loop UX details** — exact WhatsApp template formats, what's quick-yes/no vs. what's "click here for the full draft", how multi-user approval works if one person drafts and another approves. Decided in ADR 0019 (Phase 4) and refined in Phase 6.
+- **Task assignment semantics** — does each Task get assigned to a specific User on creation (round-robin? based on which User the related Interaction belongs to?), or does it land in a team pool that anyone can claim? What's the snooze / re-assign UX? Decided in ADR 0019 (Phase 4).
+- **Task TTL and expiry** — do Tasks expire if not acted on? What's the default time-to-live, and what happens at expiry (auto-reject the underlying action, auto-escalate, just notify)? Decided in ADR 0019 (Phase 4).
+- **Task fanout policy** — when a Task is created, which channels notify (all of WhatsApp + email + web, or one based on user preference, or escalating sequence)? Decided in ADR 0019 (Phase 4) and refined alongside the WhatsApp swap.
 
 ## When to reconsider this whole direction
 
