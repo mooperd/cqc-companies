@@ -1,6 +1,6 @@
 # Plan — Change-event files: git event log → DB projection (CQC + Companies House)
 
-**Status:** Proposed.
+**Status:** Closed (2026-06-23). WS1–WS5 shipped; WS6 (consumers) deferred.
 
 <!-- Status lifecycle: Proposed → Active → Closed (YYYY-MM-DD) -->
 
@@ -20,10 +20,15 @@ is also the outreach-trigger substrate (Phase 4).
   554 errored → re-tried via `ch_enriched_at`). This becomes the CH **seed file**.
 - The monthly `cqc_refresh` cron ([`cqc-bulk-ingest.md`](cqc-bulk-ingest.md)).
 
-## Where things stand (2026-06-21)
+## Where things stand (2026-06-23)
 
-Nothing built. `cqc_refresh` overwrites the full CSVs; CH state lives only in the
-DB; no change-event files, no projection/replay, no removals.
+WS1–WS5 shipped. `cqc_refresh` emits `data/changes/cqc-*.json` deltas (seed CSVs
+untouched); `apply_events` projects CQC files into the DB with a soft-delete +
+`applied_event_file` ledger; `enrich_people` is a filing-history-gated CH producer
+that emits role events + `companies-house-*.json`; `cqc-refresh.yml` commits the
+small delta. Open: WS6 consumers (outreach `Task` from `change_events`; CH
+Streaming API) — deferred to the deploy phase. Not yet exercised on a live changed
+bulk (CQC) or a live API run (CH); both await real upstream change / a key.
 
 ## Workstreams
 
@@ -99,13 +104,23 @@ real filings) is still unproven, same caveat as the CQC producer.
 
 ### WS5 — Simplify the refresh workflow
 
-**Status:** Open.
+**Status:** Shipped (2026-06-23).
 
-`cqc-refresh.yml` commits the small new event file (+ watermark/state) instead of
-force-pushing 40 MB CSVs; PR body = change summary. Add the CH producer to the
-schedule (or its own workflow).
+`cqc-refresh.yml` now runs `cqc_refresh.py refresh` (which emits
+`data/changes/cqc-*.json` + updates `data/cqc-refresh-state.json`), detects a new
+delta via `git status --porcelain data/changes data/cqc-refresh-state.json`, and
+commits **only** the small event file + state to the bot-owned `data/refresh`
+branch — no more 40 MB CSV force-push. PR body = the refresh log's change summary
+(`directory +N ~N -N, locations ...`).
 
-**Exit:** a dispatch run opens a PR adding only an event file.
+The **CH producer is not scheduled here**: `enrich_people` needs a live DB + API
+key, which CI has neither of (no deploy, no Postgres). It runs locally / at
+deploy time — consistent with ADR 0015 §7 (CH Streaming API + scheduling deferred
+to the deploy phase, product-vision Phase 6).
+
+**Exit:** ✓ actionlint + shellcheck clean; detect-changes verified against the
+working tree (empty → `changed=false`). A live PR awaits the next real CQC bulk
+(no delta has been produced yet — data unchanged since the seed).
 
 ### WS6 — (Deferred) consumers
 
@@ -118,8 +133,8 @@ schedule (or its own workflow).
 - [ ] WS2 — CQC emits event files; seed not overwritten.
 - [ ] WS3 — replay rebuilds and apply-latest updates the DB identically; removals soft-deleted.
 - [x] WS4 — CH filing-history poll emits role events for changed companies only.
-- [ ] WS5 — workflow commits event files.
-- [ ] ADR 0015 Proposed → Accepted.
+- [x] WS5 — workflow commits event files.
+- [x] ADR 0015 Proposed → Accepted.
 
 ## References
 

@@ -1,11 +1,12 @@
 # ADR 0015 — Change-event files as the source of truth; the database as a projection
 
-**Status:** Proposed.
+**Status:** Accepted (2026-06-23). WS1–WS5 shipped (see
+[`docs/plans/data-freshness.md`](../plans/data-freshness.md)); the standalone
+CH-file rebuild path and Streaming-API producer remain deferred (§7, walk-back).
 
 <!--
 Supersedes the regenerate-and-overwrite refresh (ADR 0007 Amendment / cqc-bulk-
 ingest plan); reframes ADR 0005 ingest as "replay event files into a projection".
-Move to Accepted once the event-file pipeline rebuilds + incrementally applies a DB.
 -->
 
 **TL;DR.** In the context of keeping CQC and Companies House data current and

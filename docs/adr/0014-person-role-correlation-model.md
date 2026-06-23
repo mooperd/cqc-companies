@@ -1,6 +1,6 @@
 # ADR 0014 — Person/Role model with cross-source identity correlation
 
-**Status:** Proposed.
+**Status:** Accepted (2026-06-23).
 
 <!--
 Supersedes the flat `Person` introduced in ADR 0012 (only throwaway data

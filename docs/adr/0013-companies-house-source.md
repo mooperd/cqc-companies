@@ -1,8 +1,8 @@
 # ADR 0013 — Companies House as the first director-identification source
 
-**Status:** Proposed. **Amended 2026-06-21:** scope widened to two CH people
-sources (officers **and** persons with significant control), individuals only —
-see Amendment below.
+**Status:** Accepted (2026-06-23). **Amended 2026-06-21:** scope widened to two
+CH people sources (officers **and** persons with significant control),
+individuals only — see Amendment below.
 
 ## Amendment (2026-06-21) — add the PSC endpoint; individuals only
 
