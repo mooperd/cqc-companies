@@ -82,7 +82,8 @@ We build the smallest meaningful slice first and add capability without invalida
 > Person/Role correlation, 0015 data-freshness) — so what this table once called
 > ADR 0014 (Phantombuster) is now 0016, and so on. Treat the future numbers here
 > as labels that may shift again if more unplanned ADRs land before Phase 3.
-> Written ADRs to date: 0001–0015 (see [`adr/README.md`](adr/README.md)).
+> Written ADRs to date: 0001–0016 — 0016 (Phantombuster/LinkedIn ingestion) is
+> drafted ahead as Proposed; see [`adr/README.md`](adr/README.md).
 
 The right time to **decide on cloud infrastructure** is Phase 6 — when WhatsApp's inbound webhooks force the issue. Phases 0–5 run locally + in CI without a public endpoint, so the question stays parked.
 
