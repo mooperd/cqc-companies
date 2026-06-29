@@ -26,8 +26,9 @@ These first ten ADRs were reverse-engineered from the codebase as of `2fe0977` (
 | 0014 | [Person/Role model with cross-source identity correlation](0014-person-role-correlation-model.md) | Accepted 2026-06-23 |
 | 0015 | [Change-event files as the source of truth; the database as a projection](0015-data-freshness-strategy.md) | Accepted 2026-06-23 |
 | 0016 | [LinkedIn identification via Phantombuster (the phantom-run runtime)](0016-linkedin-phantombuster-ingestion.md) | Proposed (drafted ahead of Phase 3) |
+| 0017 | [GDPR controller posture for scraped contact data](0017-gdpr-controller-posture.md) | Proposed |
 
-Next available number: **0017** (projected: GDPR controller posture — see [`product-vision.md`](../product-vision.md) Phase 3). Numbers are assigned at write time; the roadmap's future numbers are projections, not reservations.
+Next available number: **0018** (projected: LinkedIn account hygiene / warming — see [`product-vision.md`](../product-vision.md) Phase 3). Numbers are assigned at write time; the roadmap's future numbers are projections, not reservations.
 
 ## Format
 

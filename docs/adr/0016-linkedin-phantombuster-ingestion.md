@@ -163,7 +163,8 @@ officer and PSC endpoints merge into each other.
   when LinkedIn changes its DOM or rate-limits. The runtime must treat failure as
   normal (status + retry, not abort), and credit quotas must gate launches.
 - **Cost — legal exposure:** the first real scrape makes us a data controller.
-  This ADR does **not** discharge that — ADR 0017 must land before the first
+  This ADR does **not** discharge that — [ADR 0017](0017-gdpr-controller-posture.md)
+  must land before the first
   live identification run, not after.
 
 ## Walk-back options
@@ -199,6 +200,6 @@ officer and PSC endpoints merge into each other.
 - [`product-vision.md`](../product-vision.md) — Phase 3; identification vs action
   phantoms; the credit-budgeting and account-warming open questions (the latter
   deferred to ADR 0018).
-- **Deferred siblings:** ADR 0017 (GDPR controller posture), ADR 0018 (LinkedIn
+- **Deferred siblings:** [ADR 0017](0017-gdpr-controller-posture.md) (GDPR controller posture), ADR 0018 (LinkedIn
   account hygiene / warming), ADR 0019 (Task entity — the merge/review surface),
   ADR 0020 (outreach channels — action phantoms).

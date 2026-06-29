@@ -22,10 +22,11 @@ three prerequisites (below) and is not part of this slice.
 1. **A Phantombuster account + API key**, and the identification phantoms set up
    (Sales Nav Search Export, Company People Scraper, Profile Data). No sandbox
    exists — live runs cost credits.
-2. **[ADR 0017](../adr/0017) — GDPR controller posture.** ADR 0016 §Consequences:
-   this *must land before the first live identification run*. The first scrape
-   makes us a UK data controller; retention/erasure fields on `Person` are shaped
-   there.
+2. **[ADR 0017](../adr/0017-gdpr-controller-posture.md) — GDPR controller posture
+   (Proposed).** The posture is now recorded, but its **durable-erasure
+   mechanism** (WS6) is the code that must ship before real personal data lands —
+   plus the legal sign-off it flags (a reviewed LIA, privacy notice, ICO
+   registration).
 3. **Per-user secrets populated** — a real `User` with their encrypted
    `linkedin_session_cookie` + `phantombuster_api_key`, plus `APP_SECRETS_KEY`
    configured for at-rest encryption.
@@ -99,6 +100,25 @@ is not run until an account + ADR 0017 + per-user secrets are in place.
 **Status:** Deferred to Phase 4. A LinkedIn↔CH provider-scoped name match becomes
 a `merge_person` review Task once the Task entity (ADR 0019) exists. Until then
 duplicates are tolerated and flagged.
+
+### WS6 — Durable erasure + retention ([ADR 0017](../adr/0017-gdpr-controller-posture.md))
+
+**Status:** Open — **gates the first live scrape** (real personal data).
+
+The load-bearing GDPR mechanism (ADR 0017 §5): erasure/objection must survive
+re-scraping.
+- `SuppressedContact` (additive): hashed identifier (`linkedin_url` and/or
+  normalised name) + reason + date — a tombstone, **not** the profile.
+- An erasure path that deletes the `Person`/`Role` AND writes the tombstone.
+- `sync_profiles` (WS3) + the CH enrichers consult `SuppressedContact` **before**
+  creating a `Person`, so an erased person is never resurrected.
+- `Person` acquisition timestamp + a retention purge job (no `Interaction` / no
+  role change within the window; default 24 months — a knob).
+
+**Exit:** an erased person is deleted and a re-scrape of their company does not
+re-create them (suppression hit); retention purge removes stale no-relationship
+contacts. (Operational/legal tasks — LIA, privacy notice, ICO — tracked outside
+this plan.)
 
 ## Phase exit criteria
 
