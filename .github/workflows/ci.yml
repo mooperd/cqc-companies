@@ -64,11 +64,19 @@ jobs:
           import apply_events  # change-event files -> DB projection (ADR 0015)
           import companies_house  # CH officers + PSC client; stdlib-only
           import enrich_people  # CH officers + PSC -> Person/Role (WS2/WS4)
+          import secrets_box  # per-user secret encryption (ADR 0016)
+          import phantombuster  # Phantombuster LinkedIn client; stdlib-only
+          import enrich_linkedin  # LinkedIn profiles -> Person/Role (ADR 0016)
 
           # Change-event model (ADR 0015) wired up.
           assert hasattr(model, 'ChangeEvent') and hasattr(model, 'AppliedEventFile')
           assert 'active' in model.Provider.__table__.c
           print('ChangeEvent + provider lifecycle columns present')
+
+          # LinkedIn ingestion model (ADR 0016) wired up.
+          assert hasattr(model, 'User') and hasattr(model, 'PhantomRun')
+          assert 'linkedin_url' in model.Person.__table__.c
+          print('User + PhantomRun + Person.linkedin_url present')
 
           # Sanity-check the Flask app actually wired up.
           routes = sorted(r.rule for r in app.app.url_map.iter_rules())
@@ -92,4 +100,13 @@ jobs:
           ep_parser = enrich_people.build_parser()
           assert ep_parser.parse_args(['--limit', '5']).limit == 5
           print('enrich_people CLI parser OK')
+
+          # And the Phantombuster + LinkedIn-ingestion CLIs (ADR 0016).
+          pb_parser = phantombuster.build_parser()
+          assert pb_parser.parse_args(['result', 'AGENT1']).cmd == 'result'
+          el_parser = enrich_linkedin.build_parser()
+          assert el_parser.parse_args(
+              ['--user-id', '1', '--provider-id', '2', '--phantom', 'x', '--agent-id', 'a']
+          ).phantom == 'x'
+          print('phantombuster + enrich_linkedin CLI parsers OK')
           PY

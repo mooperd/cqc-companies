@@ -89,6 +89,13 @@ officer and PSC endpoints merge into each other.
    detail). Corporate/company results are discarded — `Person` is contactable
    humans only (ADR 0014 §5).
 
+   *Unlike CQC/CH ([ADR 0015](0015-data-freshness-strategy.md)), LinkedIn
+   ingestion writes `Person`/`Role` **directly**, with no change-event file. The
+   asymmetry is deliberate: a re-scrape overwrites the current profile rather than
+   accumulating an external diff, so there is nothing to event-source — the
+   `PhantomRun` row is the audit trail (what ran, when, against whom, at what
+   credit cost).*
+
 4. **`Person.linkedin_url` (new, additive) is the LinkedIn identity + dedup key.**
    A nullable, indexed `String`. LinkedIn-sourced people correlate **by exact
    `linkedin_url`** when present (the same profile re-scraped is the same

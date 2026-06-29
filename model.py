@@ -98,6 +98,10 @@ class Person(db.Model):
     dob_year = db.Column(db.Integer, index=True)
     dob_month = db.Column(db.Integer)
     nationality = db.Column(db.String(100))
+    # LinkedIn identity + dedup key (ADR 0016). A person has one LinkedIn profile;
+    # the URL is the stable key for re-scrapes and is stronger than name. Null for
+    # people who only ever came from Companies House or manual entry.
+    linkedin_url = db.Column(db.String(500), index=True)
     # How sure we are this is one real human: 'low' when created without a DOB
     # anchor (not auto-merged). See ADR 0014.
     match_confidence = db.Column(db.String(20))  # high | low
@@ -147,3 +151,66 @@ class AppliedEventFile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     filename = db.Column(db.String(255), nullable=False, unique=True, index=True)
     applied_at = db.Column(db.DateTime)
+
+
+class _EncryptedField:
+    """Descriptor for an at-rest-encrypted secret. Reads/writes PLAINTEXT through
+    secrets_box; the ciphertext lives in the sibling `<name>_enc` Column. There is
+    no plaintext column, so a credential can't be persisted unencrypted by
+    accident (fail-closed without APP_SECRETS_KEY). Lazy-imports secrets_box in
+    one place so `import model` stays light (smoke check) — see ADR 0016."""
+
+    def __set_name__(self, owner, name: str) -> None:
+        self._col = f"{name}_enc"
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self  # class-level access (SQLAlchemy declarative scan)
+        import secrets_box
+        token = getattr(obj, self._col)
+        return secrets_box.decrypt(token) if token else None
+
+    def __set__(self, obj, value: str | None) -> None:
+        import secrets_box
+        setattr(obj, self._col, secrets_box.encrypt(value) if value else None)
+
+
+# A team member doing outreach (ADR 0012, built minimally for ADR 0016). Acts
+# under their own LinkedIn identity, so phantoms run with THIS user's session +
+# Phantombuster key — both held encrypted at rest (the *_enc columns are
+# ciphertext; assign/read the plaintext via the _EncryptedField descriptors).
+# Table is `app_user` because `user` is reserved in PostgreSQL.
+class User(db.Model):
+    __tablename__ = 'app_user'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255))
+    email = db.Column(db.String(255), unique=True, index=True)
+    # Ciphertext at rest; access the plaintext via the descriptors below.
+    linkedin_session_cookie_enc = db.Column(db.Text)
+    phantombuster_api_key_enc = db.Column(db.Text)
+    # `user.linkedin_session_cookie = "..."` encrypts into linkedin_session_cookie_enc;
+    # reading it decrypts. Same for the Phantombuster key.
+    linkedin_session_cookie = _EncryptedField()
+    phantombuster_api_key = _EncryptedField()
+
+    phantom_runs = db.relationship('PhantomRun', backref='user', lazy=True)
+
+
+# One Phantombuster run (ADR 0016): an async LinkedIn scrape (or, later, an
+# action) launched under a User's credentials, against an optional target
+# provider. The durable record of a scrape — status drives resume, credits_spent
+# meters cost. identification phantoms feed Person/Role via enrich_linkedin.
+class PhantomRun(db.Model):
+    __tablename__ = 'phantom_run'
+    id = db.Column(db.Integer, primary_key=True)
+    phantom = db.Column(db.String(100), nullable=False)  # e.g. company-people-scraper
+    user_id = db.Column(db.Integer, db.ForeignKey('app_user.id'), nullable=False, index=True)
+    # Target org for company-scoped phantoms; null for a search not tied to one.
+    provider_id = db.Column(db.Integer, db.ForeignKey('provider.id'), index=True)
+    input = db.Column(db.JSON)  # the launch arguments
+    status = db.Column(db.String(20), nullable=False, default='queued')  # queued|launched|running|finished|failed
+    launched_at = db.Column(db.DateTime)
+    finished_at = db.Column(db.DateTime)
+    output_ref = db.Column(db.String(500))  # where the fetched result is stored
+    credits_spent = db.Column(db.Integer)
+    error = db.Column(db.Text)
