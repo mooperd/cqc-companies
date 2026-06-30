@@ -26,6 +26,38 @@ Agent ID, not the display name** — phantoms get renamed; the **session cookie 
 the `sessionCookie` argument field** (the browser-extension "connect" just writes
 it), and Sales Navigator phantoms want the Sales Nav cookie.
 
+## Live + hub-confirmed (2026-07-01)
+
+Verified against a live API key and the rendered hub (`hub.phantombuster.com/reference`):
+
+- **Auth works live.** The key authenticates; `GET /agents/fetch-all` returns a
+  **bare JSON array** (not the `{status,data}` envelope the other endpoints use).
+  The account currently has **0 agents** — nothing to launch until a phantom is
+  added in the UI.
+- **`agents/launch-sync` does not return result rows.** It streams NDJSON
+  (start/heartbeat/logs/summary) + a `containerId`; the summary has exit/timing
+  only. So results still come from the S3 `result.json` — the async
+  launch→poll→fetch design stands; don't switch to launch-sync for results.
+- **No API input-list mechanism.** `org-storage/leads/*` and
+  `org-storage/companies-objects/*` are **output stores** (phantoms persist
+  scraped people/companies there; leads-keyed on `linkedinProfileUrl`,
+  companies-keyed on `linkedinCompanyId`). Lists are filter-views over them. A
+  phantom's input is **`spreadsheetUrl` = a public CSV URL** (Google Sheets
+  "publish to web → CSV", or a hosted CSV — Drive *share* links are blocked) or a
+  single value via `bonusArgument`; **inline arrays are rejected**. We have no
+  host → a published CSV is the feed until Phase 6.
+- **Per-phantom argument keys come from `GET /agents/fetch?id=<agentId>`** — it
+  returns the phantom's **saved argument**, the ground-truth schema as configured
+  in the UI. Use that, not the API hub (which documents only generic endpoints).
+
+## Two-stage gap (input side, not yet built)
+
+Company Employees Export is keyed on a LinkedIn **company URL**, but `Provider`
+has no such field. So a **stage-0 resolver** (provider → LinkedIn company URL,
+stored on a new `Provider.linkedin_company_url`) plus the **feed** (emit a CSV →
+publish at a public URL → `spreadsheetUrl`) are prerequisites to the people
+scrape. Captured for the ADR 0016 amendment + plan workstream.
+
 ## Still UNCONFIRMED → needs one live run (or the Phantombuster MCP)
 
 1. **Per-phantom result field names.** `fullName` / `firstName`+`lastName`,
