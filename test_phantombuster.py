@@ -63,13 +63,16 @@ def test_result_rows_unwraps_resultobject():
 
 def test_container_status_helpers():
     assert pb.container_finished({"status": "finished"}) is True
+    assert pb.container_finished({"status": "launch error"}) is True  # terminal-but-failed
     assert pb.container_finished({"status": "running"}) is False
+    assert pb.container_finished({"status": "starting"}) is False
+    # status == finished does NOT imply success — gate on lastEndStatus.
     assert pb.container_succeeded({"status": "finished", "lastEndStatus": "success"}) is True
     assert pb.container_succeeded({"status": "finished", "lastEndStatus": "error"}) is False
-    print("OK — container_finished / container_succeeded")
+    print("OK — container_finished (finished | launch error) / container_succeeded")
 
 
-def test_launch_agent_extracts_container_id():
+def test_launch_agent_json_encodes_argument():
     calls = []
 
     def fake_request(method, path, key, body=None):
@@ -83,25 +86,48 @@ def test_launch_agent_extracts_container_id():
         assert cid == "C123"
         method, path, body = calls[0]
         assert method == "POST" and path == "/api/v2/agents/launch"
-        assert body == {"id": "AGENT1", "argument": {"companyUrl": "x", "sessionCookie": "li"}}
+        assert body["id"] == "AGENT1"
+        # argument is JSON-encoded to a string (v1/v2 compatible), not a raw object.
+        assert isinstance(body["argument"], str)
+        assert json.loads(body["argument"]) == {"companyUrl": "x", "sessionCookie": "li"}
     finally:
         pb._request = original
-    print("OK — launch_agent: POSTs the argument, extracts containerId from data envelope")
+    print("OK — launch_agent: JSON-encodes argument, extracts containerId from envelope")
 
 
-def test_fetch_result_parses_profiles():
+def test_result_json_url():
+    url = pb.result_json_url({"orgS3Folder": "ORG", "s3Folder": "PHANTOM"})
+    assert url == "https://phantombuster.s3.amazonaws.com/ORG/PHANTOM/result.json"
+    # Missing folders → loud error rather than a malformed URL.
+    try:
+        pb.result_json_url({"orgS3Folder": "ORG"})
+        assert False, "missing s3Folder must raise"
+    except pb.PhantombusterError:
+        pass
+    print("OK — result_json_url: builds the S3 result.json URL, raises on missing folders")
+
+
+def test_fetch_result_reads_s3_result_json():
+    # fetch_result: agents/fetch → S3 folders → GET result.json (the canonical rows).
     def fake_request(method, path, key, body=None):
-        assert path == "/api/v2/agents/fetch-output?id=AGENT1"
-        return {"data": {"resultObject": json.dumps(_FIXTURE_ROWS)}}
+        assert path == "/api/v2/agents/fetch?id=AGENT1"
+        return {"data": {"orgS3Folder": "ORG", "s3Folder": "PHANTOM"}}
 
-    original = pb._request
-    pb._request = fake_request
+    seen = {}
+
+    def fake_get_url_json(url):
+        seen["url"] = url
+        return _FIXTURE_ROWS
+
+    orig_request, orig_get = pb._request, pb._get_url_json
+    pb._request, pb._get_url_json = fake_request, fake_get_url_json
     try:
         profiles = pb.fetch_result("AGENT1", api_key="k")
+        assert seen["url"] == "https://phantombuster.s3.amazonaws.com/ORG/PHANTOM/result.json"
         assert [p.name for p in profiles] == ["Jane Smith", "Bob Jones"]
     finally:
-        pb._request = original
-    print("OK — fetch_result: fetch-output → parsed profiles")
+        pb._request, pb._get_url_json = orig_request, orig_get
+    print("OK — fetch_result: agents/fetch → S3 result.json → parsed profiles")
 
 
 def test_resolve_api_key():
@@ -153,8 +179,9 @@ if __name__ == "__main__":
     test_parse_profiles_tolerant_fields()
     test_result_rows_unwraps_resultobject()
     test_container_status_helpers()
-    test_launch_agent_extracts_container_id()
-    test_fetch_result_parses_profiles()
+    test_launch_agent_json_encodes_argument()
+    test_result_json_url()
+    test_fetch_result_reads_s3_result_json()
     test_resolve_api_key()
     test_request_retries_5xx()
     print("\nAll Phantombuster offline tests passed.")

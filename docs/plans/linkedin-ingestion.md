@@ -66,8 +66,12 @@ secret; setting a secret with no `APP_SECRETS_KEY` raises.
 - CLI for manual checks once a key exists.
 
 **Exit:** `test_phantombuster.py` covers request construction + result parsing
-against fixtures with a mocked HTTP layer (no live key). *Field names are
-representative and flagged for validation against a live run (ADR 0016).*
+against fixtures with a mocked HTTP layer (no live key). Transport reconciled
+against the public v2 API — see [`docs/spikes/phantombuster-api.md`](../spikes/phantombuster-api.md):
+the canonical result path is the S3 `result.json` (not `resultObject`), status is
+gated on `lastEndStatus`, and the `argument` is JSON-encoded. *Per-phantom result
+**field names** remain INFERRED — one live run confirms them (the spike's residual
+list).*
 
 ### WS3 — Ingestion: profile → Person/Role (offline)
 

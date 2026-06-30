@@ -88,7 +88,7 @@ class PhantombusterError(Exception):
 
 
 def _first(item: dict, *keys: str) -> str | None:
-    """First non-empty value among `keys` (phantoms vary in field naming)."""
+    """First non-empty value among `keys` (lowercase; caller lowercases the row)."""
     for key in keys:
         value = item.get(key)
         if value:
@@ -97,21 +97,23 @@ def _first(item: dict, *keys: str) -> str | None:
 
 
 def parse_profile(item: dict) -> ScrapedProfile:
-    """Map one phantom result row to a ScrapedProfile, tolerant of key variation."""
-    name = _first(item, "fullName", "name", "fullname")
+    """Map one phantom result row to a ScrapedProfile, tolerant of key variation.
+    Keys are matched case-insensitively — Phantombuster is inconsistent about
+    `linkedIn` vs `linkedin` casing across phantoms (spike: phantombuster-api)."""
+    item = {str(k).lower(): v for k, v in item.items()}
+    name = _first(item, "fullname", "name")
     if not name:
-        first = _first(item, "firstName", "firstname")
-        last = _first(item, "lastName", "lastname")
+        first = _first(item, "firstname")
+        last = _first(item, "lastname")
         name = " ".join(p for p in (first, last) if p) or ""
     return ScrapedProfile(
         name=name,
         linkedin_url=_first(
-            item, "linkedInProfileUrl", "linkedinProfileUrl", "profileUrl",
-            "linkedinUrl", "profileLink", "linkedInUrl",
+            item, "linkedinprofileurl", "profileurl", "linkedinurl", "profilelink",
         ),
-        headline=_first(item, "headline", "title", "jobTitle", "occupation"),
-        company=_first(item, "companyName", "company", "currentCompany"),
-        location=_first(item, "location", "locationName"),
+        headline=_first(item, "headline", "title", "jobtitle", "occupation"),
+        company=_first(item, "companyname", "company", "currentcompany"),
+        location=_first(item, "location", "locationname"),
     )
 
 
@@ -122,13 +124,22 @@ def parse_profiles(rows: list[dict]) -> list[ScrapedProfile]:
     return [p for p in profiles if p.name]
 
 
+# v2 container status enum (agents/fetch-output prevStatusString):
+# starting | running | finished | unknown | launch error. "finished" is the
+# clean terminal; "launch error" is terminal-but-failed (gate on lastEndStatus
+# below, never on status alone). "unknown" is treated as still-running.
+_TERMINAL_STATES = frozenset({"finished", "launch error"})
+
+
 def container_finished(payload: dict) -> bool:
-    """True once a container has stopped running (success or error)."""
-    return (payload.get("status") or "").lower() in {"finished", "stopped"}
+    """True once a container has reached a terminal state (stop polling)."""
+    return (payload.get("status") or "").lower() in _TERMINAL_STATES
 
 
 def container_succeeded(payload: dict) -> bool:
-    """True if a finished container ended successfully."""
+    """True if a finished container ended successfully. `status == finished` does
+    NOT imply success — a phantom can finish with lastEndStatus 'error' (e.g. an
+    expired LinkedIn session cookie), so always gate on this."""
     return (payload.get("lastEndStatus") or "").lower() == "success"
 
 
@@ -214,9 +225,11 @@ def launch_agent(agent_id: str, argument: dict, api_key: str | None = None) -> s
     """Launch a phantom (agent), returning its container id. `argument` is the
     phantom's input (e.g. the company URL + the running user's session cookie)."""
     key = resolve_api_key(api_key)
+    # `argument` is JSON-encoded to a string: v2 accepts object-or-string but v1
+    # requires a string, so a string is the compatible form (spike: phantombuster-api).
     payload = _request("POST", "/api/v2/agents/launch", key,
-                       body={"id": agent_id, "argument": argument})
-    container_id = _data(payload).get("containerId")  # _data unwraps the envelope
+                       body={"id": agent_id, "argument": json.dumps(argument)})
+    container_id = _data(payload).get("containerId")  # _data unwraps the JSend envelope
     if not container_id:
         raise PhantombusterError(f"launch returned no containerId: {payload}")
     return str(container_id)
@@ -228,8 +241,65 @@ def fetch_container(container_id: str, api_key: str | None = None) -> dict:
     return _data(_request("GET", f"/api/v2/containers/fetch?id={container_id}", key))
 
 
-def fetch_result(agent_id: str, api_key: str | None = None) -> list[ScrapedProfile]:
-    """Fetch and parse the agent's most recent scraped profiles."""
+def fetch_agent(agent_id: str, api_key: str | None = None) -> dict:
+    """Fetch an agent's record — including the S3 folder pointers its results live
+    under (`orgS3Folder`, `s3Folder`)."""
+    key = resolve_api_key(api_key)
+    return _data(_request("GET", f"/api/v2/agents/fetch?id={agent_id}", key))
+
+
+def result_json_url(agent_record: dict, filename: str = "result.json") -> str:
+    """Build the public S3 URL of an agent's structured result file. The full
+    `result.json` is the canonical row set — the `result.csv` is a lossy subset
+    (only the first job/school, fewer columns), so always read the JSON
+    (spike: phantombuster-api)."""
+    org = agent_record.get("orgS3Folder")
+    folder = agent_record.get("s3Folder")
+    if not org or not folder:
+        raise PhantombusterError(f"agent record missing S3 folders: {agent_record!r}")
+    return f"https://phantombuster.s3.amazonaws.com/{org}/{folder}/{filename}"
+
+
+def _get_url_json(url: str):
+    """GET an absolute URL (the public S3 result file — no auth header) → JSON.
+    Retries transient errors AND 403/404, which S3 can return briefly right after
+    a run finishes (eventual consistency)."""
+    req = urllib.request.Request(url)
+    req.add_header("User-Agent", USER_AGENT)
+    req.add_header("Accept", "application/json")
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            if (err.code in _RETRY_CODES or err.code in (403, 404)) and attempt < _MAX_RETRIES:
+                time.sleep(_DEFAULT_BACKOFF * attempt)
+                continue
+            raise PhantombusterError(f"HTTP {err.code} for result file {url}", status=err.code) from err
+        except urllib.error.URLError as err:
+            if attempt < _MAX_RETRIES:
+                time.sleep(_DEFAULT_BACKOFF * attempt)
+                continue
+            raise PhantombusterError(f"network error for {url}: {err}") from err
+    raise PhantombusterError(f"giving up fetching {url}")
+
+
+def fetch_result(agent_id: str, api_key: str | None = None,
+                 filename: str = "result.json") -> list[ScrapedProfile]:
+    """Fetch + parse an agent's most recent scraped profiles from its S3
+    `result.json` (the canonical full row set). Keyed on the agent id, not its
+    display name — phantoms get renamed (spike: phantombuster-api)."""
+    key = resolve_api_key(api_key)
+    rows = _get_url_json(result_json_url(fetch_agent(agent_id, key), filename))
+    if isinstance(rows, dict):  # some phantoms wrap the array under a key
+        rows = rows.get("data") or rows.get("results") or []
+    return parse_profiles(rows if isinstance(rows, list) else [])
+
+
+def fetch_result_object(agent_id: str, api_key: str | None = None) -> list[ScrapedProfile]:
+    """Secondary path: parse the in-API `resultObject` (a JSON-encoded string set
+    via the phantom's setResultObject). Smaller and not always populated — prefer
+    `fetch_result` (S3) for the full rows (spike: phantombuster-api)."""
     key = resolve_api_key(api_key)
     payload = _data(_request("GET", f"/api/v2/agents/fetch-output?id={agent_id}", key))
     return parse_profiles(_result_rows(payload))
