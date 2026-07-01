@@ -221,14 +221,27 @@ def _data(payload: dict) -> dict:
 # --- Public API ---------------------------------------------------------------
 
 
-def launch_agent(agent_id: str, argument: dict, api_key: str | None = None) -> str:
-    """Launch a phantom (agent), returning its container id. `argument` is the
-    phantom's input (e.g. the company URL + the running user's session cookie)."""
+def launch_agent(agent_id: str, argument: dict | None = None,
+                 api_key: str | None = None, bonus_argument: dict | None = None) -> str:
+    """Launch a phantom (agent), returning its container id.
+
+    - `argument`: the full input. **Omit it (None) to use the phantom's SAVED
+      UI config** — sending an argument *replaces* the saved config, so passing
+      `{}` would wipe it (spike: phantombuster-api).
+    - `bonus_argument`: merged into the saved config for THIS launch only — the
+      right way to override one input (e.g. `spreadsheetUrl`) without clobbering
+      the rest.
+
+    Both are JSON-encoded to strings: v2 accepts object-or-string but v1 requires
+    a string, so a string is the compatible form.
+    """
     key = resolve_api_key(api_key)
-    # `argument` is JSON-encoded to a string: v2 accepts object-or-string but v1
-    # requires a string, so a string is the compatible form (spike: phantombuster-api).
-    payload = _request("POST", "/api/v2/agents/launch", key,
-                       body={"id": agent_id, "argument": json.dumps(argument)})
+    body: dict = {"id": agent_id}
+    if argument is not None:
+        body["argument"] = json.dumps(argument)
+    if bonus_argument is not None:
+        body["bonusArgument"] = json.dumps(bonus_argument)
+    payload = _request("POST", "/api/v2/agents/launch", key, body=body)
     container_id = _data(payload).get("containerId")  # _data unwraps the JSend envelope
     if not container_id:
         raise PhantombusterError(f"launch returned no containerId: {payload}")

@@ -90,9 +90,17 @@ def test_launch_agent_json_encodes_argument():
         # argument is JSON-encoded to a string (v1/v2 compatible), not a raw object.
         assert isinstance(body["argument"], str)
         assert json.loads(body["argument"]) == {"companyUrl": "x", "sessionCookie": "li"}
+
+        # No argument → use the phantom's SAVED config (don't send `argument`,
+        # which would replace it); bonus_argument overrides one field for this run.
+        calls.clear()
+        pb.launch_agent("AGENT1", api_key="k", bonus_argument={"spreadsheetUrl": "u"})
+        _, _, body = calls[0]
+        assert "argument" not in body, "saved-config launch must not send argument"
+        assert json.loads(body["bonusArgument"]) == {"spreadsheetUrl": "u"}
     finally:
         pb._request = original
-    print("OK — launch_agent: JSON-encodes argument, extracts containerId from envelope")
+    print("OK — launch_agent: JSON-encoded argument, saved-config (no argument) + bonusArgument")
 
 
 def test_result_json_url():
