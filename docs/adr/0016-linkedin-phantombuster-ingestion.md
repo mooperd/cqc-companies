@@ -72,6 +72,13 @@ original Decision below is the historical record; §1–§5 here override its
 *mechanism*. The implementation plan is
 [`docs/plans/linkedin-ingestion.md`](../plans/linkedin-ingestion.md).
 
+**Consequence — we co-maintain the dependency.** `phantombuster-lib` is a
+mooperd repo we have write access to, so depending on it means co-owning it, not
+just consuming it (e.g. we packaged it and, on 2026-07-02, fixed committed API
+keys in it via PR #1). That's an accepted cost: shared upkeep of the acquisition
+layer in exchange for not duplicating it. Pin the dependency to a commit/tag so
+upstream changes don't silently move under us.
+
 ## Context
 
 [ADR 0013](0013-companies-house-source.md) makes Companies House the first

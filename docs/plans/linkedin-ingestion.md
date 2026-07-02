@@ -30,12 +30,28 @@ the store-phantom ones below (kept as the historical record of what we learned).
 
 ### PWS0 — package `phantombuster-lib` (cross-repo)
 
-**Status:** Open. Small PR to `mooperd/phantombuster-lib`: add `pyproject.toml`
-(pip-installable from git) and **promote the resolver** (`webapp/resolver.py` +
-`resolver_phantom.js`) into the importable library package.
+**Status:** Open. We have **WRITE access** (co-maintainers) so this is a
+self-service PR we merge. Default branch `main`; no CLAUDE.md conventions.
 
-**Exit:** `pip install git+https://github.com/mooperd/phantombuster-lib` works and
-`from phantombuster import Phantombuster` + the resolver import cleanly.
+- Add `pyproject.toml` (pip-installable from git; core dep `requests`; keep
+  Flask/SQLAlchemy as a `[webapp]` extra — they're demo-only).
+- **Promote + consolidate the resolver.** It currently lives in
+  `webapp/resolver.py` + `webapp/resolver_phantom.js` (imported as
+  `from webapp import resolver`) **and is re-implemented** in
+  `examples/cqc_to_linkedin.py` + `examples/linkedin_company_id.js` — two copies,
+  two `.js` variants. Consolidate into one importable `resolver` package (ship the
+  `.js` as package data via `os.path.dirname(__file__)`), and repoint `webapp` +
+  `examples` at it.
+
+**Done already (a detour, 2026-07-02):** [PR #1](https://github.com/mooperd/phantombuster-lib/pull/1)
+removed committed live API keys (public repo) — `webapp/clients.py` is now
+fail-closed. **The exposed keys are Andrew's and are pending rotation** (still in
+git history). Not blocking PWS0.
+
+**Exit:** `pip install git+https://github.com/mooperd/phantombuster-lib` works;
+`from phantombuster import Phantombuster` and `from resolver import ...` (or the
+chosen name) import cleanly; the webapp + examples still run against the promoted
+resolver.
 
 ### PWS1 — depend + retire our client
 
