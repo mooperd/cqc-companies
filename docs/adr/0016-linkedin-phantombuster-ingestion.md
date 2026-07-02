@@ -1,8 +1,11 @@
 # ADR 0016 — LinkedIn identification via Phantombuster (the phantom-run runtime)
 
-**Status:** Proposed. *Drafted ahead of Phase 3 — captures the intended direction
-so the roadmap has a concrete target; the firm choices below get confirmed (and
-this moves to Accepted) when Phase 3 is actually built.*
+**Status:** Proposed. *Drafted ahead of Phase 3.* **Amended 2026-07-02:** live
+Phase-3 validation + the discovery of the more-advanced
+[`mooperd/phantombuster-lib`](https://github.com/mooperd/phantombuster-lib)
+pivot the *acquisition mechanism* — see the Amendment below. The core decision
+(LinkedIn identification via Phantombuster → low-confidence `Person`/`Role`)
+stands; the store-phantom + spreadsheet-feed implementation is superseded.
 
 <!--
 Scope: identification (scrape → Person/Role) ONLY. Action phantoms (Auto-Connect,
@@ -22,6 +25,52 @@ DOB**, these never auto-merge into DOB-anchored CH people — a name+provider ma
 surfaces as a review Task (Phase 4). Accepting paid, rate-limited, async scraping
 and a duplicate-until-reviewed cost, we fill the gap Companies House structurally
 cannot see.
+
+## Amendment (2026-07-02) — acquisition via `phantombuster-lib`
+
+Phase-3 was validated live: the store **LinkedIn Company Employees Export**
+(`spreadsheetUrl` → employees) works end-to-end, but the path is high-friction —
+a public **Google-Sheet feed** (no API upload; Drive *file* URLs are rejected),
+per-phantom UI session-connect, and a store **Company URL Finder** whose
+name→URL match is badly fuzzy (`Scarborough Hall → rbrecycling`). In parallel,
+[`mooperd/phantombuster-lib`](https://github.com/mooperd/phantombuster-lib)
+independently solved the same problem more cleanly. We pivot the *mechanism* to
+depend on it.
+
+**What changes:**
+
+1. **Acquisition = `phantombuster-lib`** (git dependency). A **custom Puppeteer
+   resolver phantom** searches LinkedIn companies **with the UK-HQ geo facet**
+   (`companyHqGeo` = United Kingdom) keyed on the **CQC `brandName`** (the trading
+   brand LinkedIn actually lists, not the legal name), and scrapes the About page
+   for the numeric **`companyId`** + industry/HQ/website — verification built into
+   the search, not bolted on. Then LinkedIn **Search Export**
+   (`currentCompany=["<companyId>"]`) yields the people; results come from
+   `containers/fetch-result-object`.
+2. **No spreadsheet/Drive feed, no UI session-connect.** Custom phantoms take
+   input inline via the `argument` JSON; the `li_at` session cookie is injected
+   via the argument (from a per-user secret or a borrowed identity).
+3. **`cqc-companies` becomes the consumer.** The lib *acquires*; we correlate its
+   result rows into `Person`/`Role` (ADR 0014) with the source hierarchy
+   (ADR 0013) and suppression/erasure (ADR 0017). The row→identity mapping
+   (name / `job` / `profileUrl`) carries over from our `parse_profile`.
+4. **Schema:** add **`Provider.linkedin_company_id`** (the numeric id the lib
+   resolves); **`PhantomRun` demoted to optional audit** (the lib is stateless —
+   the container id is the job handle); keep `User`/`secrets_box` for the per-user
+   `li_at`. Adopt the lib's **`cqc` Syndication client** for
+   `brandName`/`brandId`/`companiesHouseNumber` (the resolver's search + verify
+   signals) — our bulk-CSV `Provider` doesn't store `brandName`.
+5. **Superseded and retired:** our stdlib `phantombuster.py`, the store Company
+   Employees Export + `spreadsheetUrl` path, and the store URL-Finder. The API
+   shapes + field names we verified are preserved in
+   [`docs/spikes/phantombuster-api.md`](../spikes/phantombuster-api.md).
+
+**Why:** eliminates the feed friction, solves trading-name (via `brandName`) and
+geography (via the UK-HQ facet) verification natively, and avoids maintaining a
+duplicate acquisition stack. The `PhantomRun`/store-phantom design in the
+original Decision below is the historical record; §1–§5 here override its
+*mechanism*. The implementation plan is
+[`docs/plans/linkedin-ingestion.md`](../plans/linkedin-ingestion.md).
 
 ## Context
 

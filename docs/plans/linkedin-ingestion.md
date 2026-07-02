@@ -17,6 +17,65 @@ mapping/correlation, and schema — exactly as the Companies House client was bu
 and unit-tested before a live key existed. The **live scrape stays gated** behind
 three prerequisites (below) and is not part of this slice.
 
+## Pivot (2026-07-02) — depend on `phantombuster-lib`
+
+Live Phase-3 validation worked but exposed the store-phantom path as high-friction
+(Google-Sheet feed, per-phantom session-connect, a badly fuzzy store URL-Finder).
+[`mooperd/phantombuster-lib`](https://github.com/mooperd/phantombuster-lib) already
+solves acquisition more cleanly (custom UK-HQ resolver phantom keyed on CQC
+`brandName` → numeric `companyId` → Search Export → `resultObject`, inline
+argument, no feed). Per [ADR 0016 Amendment (2026-07-02)](../adr/0016-linkedin-phantombuster-ingestion.md#amendment-2026-07-02--acquisition-via-phantombuster-lib)
+we **depend on the lib** and retire our stdlib client. New workstreams supersede
+the store-phantom ones below (kept as the historical record of what we learned).
+
+### PWS0 — package `phantombuster-lib` (cross-repo)
+
+**Status:** Open. Small PR to `mooperd/phantombuster-lib`: add `pyproject.toml`
+(pip-installable from git) and **promote the resolver** (`webapp/resolver.py` +
+`resolver_phantom.js`) into the importable library package.
+
+**Exit:** `pip install git+https://github.com/mooperd/phantombuster-lib` works and
+`from phantombuster import Phantombuster` + the resolver import cleanly.
+
+### PWS1 — depend + retire our client
+
+**Status:** Open. Add the git dependency to `cqc-companies`; **delete
+`phantombuster.py`** + `test_phantombuster.py` (superseded). Keep the spike as the
+API record.
+
+**Exit:** the lib imports in cqc-companies; suite green without our client.
+
+### PWS2 — resolver: provider → numeric `companyId`
+
+**Status:** Open. Adopt the lib's **`cqc` Syndication client** for
+`brandName`/`brandId`/`companiesHouseNumber`; run the lib resolver (UK-HQ,
+brandName) → store **`Provider.linkedin_company_id`**. Verify the match against a
+CQC signal (website/town/CH number) before trusting it; cache by `brandId`
+(one brand → many providers).
+
+**Exit:** a provider resolves to a verified numeric companyId, persisted; a bad
+match (e.g. rbrecycling) is rejected by the verify gate.
+
+### PWS3 — consume profiles → `Person`/`Role`
+
+**Status:** Open. Rework `enrich_linkedin` into a consumer: companyId → Search
+Export (via the lib) → rows → the ADR 0014 correlation (reusing the row→identity
+mapping: name / `job` / `profileUrl`), `Role.source = phantombuster:*`,
+low-confidence, no-merge-into-CH. `PhantomRun` demoted to optional audit.
+
+**Exit:** `test_enrich_linkedin` green against the lib's `RunResult` row shape;
+linkedin_url dedup + no-CH-merge invariants preserved.
+
+### PWS4 — schema + config
+
+**Status:** Open. `Provider.linkedin_company_id` (additive, ADR 0002);
+`CQC_SUBSCRIPTION_KEY` in `.env.example`; decide `PhantomRun`'s fate.
+
+### PWS5 — GDPR erasure (unchanged gate)
+
+Durable erasure ([ADR 0017](../adr/0017-gdpr-controller-posture.md), old WS6) still
+**gates the first real persistence** — build it before writing scraped people.
+
 ## Prerequisites for a LIVE run (gates, not built here)
 
 1. **A Phantombuster account + API key**, and the identification phantoms set up
@@ -31,7 +90,12 @@ three prerequisites (below) and is not part of this slice.
    `linkedin_session_cookie` + `phantombuster_api_key`, plus `APP_SECRETS_KEY`
    configured for at-rest encryption.
 
-## Workstreams
+## Workstreams (historical — superseded by the 2026-07-02 pivot above)
+
+*WS1–WS3 shipped and taught us the API + field names (preserved in the spike);
+the acquisition mechanism they built is retired in favour of `phantombuster-lib`.
+Kept here as the record of what was learned. `Person`/`Role`/`User`/`secrets_box`
+schema from WS1 survives; `phantombuster.py`/`enrich_linkedin` are reworked.*
 
 ### WS1 — Schema + secrets (offline)
 
