@@ -111,7 +111,11 @@ def parse_profile(item: dict) -> ScrapedProfile:
         linkedin_url=_first(
             item, "linkedinprofileurl", "profileurl", "linkedinurl", "profilelink",
         ),
-        headline=_first(item, "headline", "title", "jobtitle", "occupation"),
+        # `job` is the Company Employees Export field ("Nursing Manager at Care UK");
+        # the others cover Profile/Search phantoms (confirmed live 2026-07-02).
+        headline=_first(item, "job", "headline", "title", "jobtitle", "occupation"),
+        # No companyName in Company Employees Export output — the company is in
+        # `job` and, authoritatively, in `query` (the input company URL).
         company=_first(item, "companyname", "company", "currentcompany"),
         location=_first(item, "location", "locationname"),
     )

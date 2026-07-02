@@ -29,14 +29,23 @@ _FIXTURE_ROWS = [
         "headline": "Registered Manager",
         "company": "Acme Care Ltd",
     },
+    # A real Company Employees Export row (confirmed live 2026-07-02): the title
+    # field is `job`, there's no companyName, and `query` is the input company URL.
+    {
+        "name": "NS Sharpe",
+        "profileUrl": "https://linkedin.com/in/ns-sharpe-252145405",
+        "job": "Nursing Manager at Care UK",
+        "location": "Basingstoke, England, United Kingdom",
+        "query": "https://linkedin.com/company/care-uk",
+    },
     {"companyName": "Acme Care Ltd"},  # no name → dropped
 ]
 
 
 def test_parse_profiles_tolerant_fields():
     profiles = pb.parse_profiles(_FIXTURE_ROWS)
-    assert len(profiles) == 2, "the nameless row must be dropped"
-    jane, bob = profiles
+    assert len(profiles) == 3, "the nameless row must be dropped"
+    jane, bob, sharpe = profiles
     assert jane.name == "Jane Smith"
     assert jane.linkedin_url == "https://www.linkedin.com/in/jane-smith"
     assert jane.headline == "Director of Care"
@@ -47,7 +56,14 @@ def test_parse_profiles_tolerant_fields():
     assert bob.linkedin_url == "https://www.linkedin.com/in/bob-jones"
     assert bob.headline == "Registered Manager"
     assert bob.location is None
-    print("OK — parse_profiles: tolerant field mapping, drops nameless rows")
+    # Real Company Employees Export row: title comes from `job`, url from
+    # `profileUrl`, no companyName (company stays None — it's in `query`).
+    assert sharpe.name == "NS Sharpe"
+    assert sharpe.linkedin_url == "https://linkedin.com/in/ns-sharpe-252145405"
+    assert sharpe.headline == "Nursing Manager at Care UK"
+    assert sharpe.company is None
+    assert sharpe.location == "Basingstoke, England, United Kingdom"
+    print("OK — parse_profiles: tolerant mapping incl. Employees Export `job` field")
 
 
 def test_result_rows_unwraps_resultobject():
@@ -132,7 +148,7 @@ def test_fetch_result_reads_s3_result_json():
     try:
         profiles = pb.fetch_result("AGENT1", api_key="k")
         assert seen["url"] == "https://phantombuster.s3.amazonaws.com/ORG/PHANTOM/result.json"
-        assert [p.name for p in profiles] == ["Jane Smith", "Bob Jones"]
+        assert [p.name for p in profiles] == ["Jane Smith", "Bob Jones", "NS Sharpe"]
     finally:
         pb._request, pb._get_url_json = orig_request, orig_get
     print("OK — fetch_result: agents/fetch → S3 result.json → parsed profiles")

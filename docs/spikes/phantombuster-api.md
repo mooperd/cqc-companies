@@ -58,6 +58,32 @@ stored on a new `Provider.linkedin_company_url`) plus the **feed** (emit a CSV �
 publish at a public URL → `spreadsheetUrl`) are prerequisites to the people
 scrape. Captured for the ADR 0016 amendment + plan workstream.
 
+## Employee output field names — CONFIRMED via live run (2026-07-02)
+
+A real Company Employees Export run (5 companies × 5 profiles) settled the last
+unknown. Real result-row keys:
+
+```
+profileUrl, name, firstName, lastName, job, location, connectionDegree, query, timestamp
+```
+
+- **`job`** is the title field (e.g. `"Nursing Manager at Care UK"`) — NOT
+  `title`/`headline`. `parse_profile` now lists `job` first.
+- **No `companyName`.** The company is embedded in `job` and, authoritatively, in
+  **`query`** — the input **company URL** for that row. So an Employees Export run
+  is inherently **multi-company**: each row's `query` says which company it came
+  from. Ingestion must map employee → provider via `query` (→ a future
+  `Provider.linkedin_company_url`), not a single run-level provider.
+- **Header row is scraped as data** (a `companyUrl` header row → a row with
+  `error: "Error retrieving company data"`). Feed the phantom a **headerless**
+  URL list, or configure skip-header. `parse_profiles` drops it (no name).
+- Result lands at S3 `result.json` (confirmed); `orgS3Folder` populates after the
+  first run; `lastEndStatus` was `None` even on success (don't hard-gate on it).
+- **Feed:** a Drive `uc?export=download` file URL is **rejected** ("Cannot find a
+  way to download"); a Google **Sheets** URL works. Publish input as a Sheet
+  (via `gws-cli sheets create` + `drive share --type anyone`).
+- **429** on rapid successive `agents/launch` — space launches out.
+
 ## Still UNCONFIRMED → needs one live run (or the Phantombuster MCP)
 
 1. **Per-phantom result field names.** `fullName` / `firstName`+`lastName`,
