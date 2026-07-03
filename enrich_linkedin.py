@@ -34,9 +34,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import enrich_people as ep
-import phantombuster as pb
 from enrich_people import Identity
+from linkedin_profiles import ScrapedProfile, parse_profiles
 from model import Person, Provider, Role, User, PhantomRun, db
+from phantombuster import Phantombuster  # phantombuster-lib (the retired stdlib client's replacement)
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ def role_source(phantom: str) -> str:
     return f"phantombuster:{phantom}"
 
 
-def _identity_from_profile(profile: pb.ScrapedProfile) -> Identity:
+def _identity_from_profile(profile: ScrapedProfile) -> Identity:
     """Parse a LinkedIn display name into the ADR 0014 identity. LinkedIn names are
     'Forename(s) Surname' — the PSC parser handles exactly that (and drops any
     leading title). No DOB/nationality from LinkedIn → a low-confidence identity."""
@@ -143,14 +144,18 @@ def ingest_run(session, run: PhantomRun, profiles, credits_spent: int | None = N
 
 def run_identification_phantom(
     session, user: User, phantom: str, agent_id: str, argument: dict,
-    provider: Provider | None = None, poll: float = _DEFAULT_POLL,
-    timeout: float = _DEFAULT_TIMEOUT,
+    provider: Provider | None = None, client: Phantombuster | None = None,
+    poll: float = _DEFAULT_POLL, timeout: float = _DEFAULT_TIMEOUT,
 ) -> PhantomRun:
     """Gated live driver (WS4): create a PhantomRun, launch the agent under the
     user's LinkedIn session + Phantombuster key, poll to completion, fetch the
-    profiles, and ingest. Needs real per-user credentials — not run offline.
-    Caller commits."""
-    key = user.phantombuster_api_key
+    result rows, and ingest. Needs real per-user credentials — not run offline.
+    Caller commits.
+
+    Transport is phantombuster-lib's ``Phantombuster`` (PWS1). ``client`` is
+    injectable for testing; by default one is built from the user's API key.
+    """
+    client = client or Phantombuster(user.phantombuster_api_key)
     run = PhantomRun(phantom=phantom, user_id=user.id,
                      provider_id=provider.id if provider else None,
                      input=argument, status="queued")
@@ -163,16 +168,17 @@ def run_identification_phantom(
     if cookie:
         launch_arg.setdefault("sessionCookie", cookie)
 
-    container_id = pb.launch_agent(agent_id, launch_arg, api_key=key)
+    container_id = client.launch(agent_id, argument=launch_arg)
     run.status, run.launched_at = "launched", dt.datetime.now(dt.timezone.utc)
 
     # Poll against a wall-clock deadline (not a += poll accumulator, which drifts
-    # by each fetch_container's own latency).
+    # by each get_container's own latency). The lib's container status reaches a
+    # terminal "finished" | "error"; success is a clean "finished" (lastEndStatus).
     deadline = time.monotonic() + timeout
     container: dict = {}
     while time.monotonic() < deadline:
-        container = pb.fetch_container(container_id, api_key=key)
-        if pb.container_finished(container):
+        container = client.get_container(container_id)
+        if container.get("status") in ("finished", "error"):
             break
         run.status = "running"
         time.sleep(poll)
@@ -180,11 +186,11 @@ def run_identification_phantom(
         run.status, run.error = "failed", "timed out waiting for the phantom"
         return run
 
-    if not pb.container_succeeded(container):
-        run.status, run.error = "failed", f"phantom ended: {container.get('lastEndStatus')}"
+    if not (container.get("status") == "finished" and container.get("lastEndStatus") == "success"):
+        run.status, run.error = "failed", f"phantom ended: {container.get('lastEndStatus') or container.get('status')}"
         return run
 
-    profiles = pb.fetch_result(agent_id, api_key=key)
+    profiles = parse_profiles(client.get_result(container_id))
     credits = container.get("creditUsed") or container.get("credits")
     ingest_run(session, run, profiles, credits_spent=credits)
     return run

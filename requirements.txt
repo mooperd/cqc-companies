@@ -6,3 +6,6 @@ cryptography==44.0.0
 matplotlib==3.10.9
 numpy==2.4.6
 python-dotenv==1.2.2
+# LinkedIn acquisition layer (ADR 0016). Pinned to the PWS0 packaging commit so
+# upstream changes don't move under us (co-maintained: mooperd/phantombuster-lib).
+phantombuster-lib @ git+https://github.com/mooperd/phantombuster-lib@2189f627cb14a811221c22cf7847efc9d67d9fec

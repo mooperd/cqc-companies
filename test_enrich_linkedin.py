@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import enrich_linkedin as el
-import phantombuster as pb
+import linkedin_profiles as lp
 from model import Person, Provider, Role, User, db
 
 
@@ -33,7 +33,7 @@ def _provider(s):
 
 
 def _profile(name, url=None, headline=None, company="Acme Care Ltd", location=None):
-    return pb.ScrapedProfile(name=name, linkedin_url=url, headline=headline,
+    return lp.ScrapedProfile(name=name, linkedin_url=url, headline=headline,
                              company=company, location=location)
 
 
@@ -127,21 +127,29 @@ def test_run_identification_phantom_full_lifecycle():
 
         launched = {}
 
-        def fake_launch(agent_id, argument, api_key=None):
-            launched["agent_id"] = agent_id
-            launched["argument"] = argument
-            launched["api_key"] = api_key
-            return "C1"
+        # A stand-in for phantombuster-lib's Phantombuster client (PWS1). The live
+        # driver builds one from the user's key; get_result returns raw phantom rows
+        # (dicts), which the driver maps via linkedin_profiles.parse_profiles.
+        class FakeClient:
+            def __init__(self, api_key):
+                launched["api_key"] = api_key
 
-        def fake_fetch_container(container_id, api_key=None):
-            return {"status": "finished", "lastEndStatus": "success", "creditUsed": 3}
+            def launch(self, agent_id, argument=None):
+                launched["agent_id"] = agent_id
+                launched["argument"] = argument
+                return "C1"
 
-        def fake_fetch_result(agent_id, api_key=None):
-            return [_profile("Jane Smith", "https://linkedin.com/in/jane", "Director of Care"),
-                    _profile("Bob Jones", "https://linkedin.com/in/bob", "Registered Manager")]
+            def get_container(self, container_id):
+                return {"status": "finished", "lastEndStatus": "success", "creditUsed": 3}
 
-        orig = (pb.launch_agent, pb.fetch_container, pb.fetch_result, el.time.sleep)
-        pb.launch_agent, pb.fetch_container, pb.fetch_result = fake_launch, fake_fetch_container, fake_fetch_result
+            def get_result(self, container_id):
+                return [{"name": "Jane Smith", "profileUrl": "https://linkedin.com/in/jane",
+                         "job": "Director of Care"},
+                        {"name": "Bob Jones", "profileUrl": "https://linkedin.com/in/bob",
+                         "job": "Registered Manager"}]
+
+        orig = (el.Phantombuster, el.time.sleep)
+        el.Phantombuster = FakeClient
         el.time.sleep = lambda _s: None
         try:
             run = el.run_identification_phantom(
@@ -149,9 +157,9 @@ def test_run_identification_phantom_full_lifecycle():
                 {"companyUrl": "https://linkedin.com/company/acme"}, provider=provider)
             s.commit()
         finally:
-            pb.launch_agent, pb.fetch_container, pb.fetch_result, el.time.sleep = orig
+            el.Phantombuster, el.time.sleep = orig
 
-        # Ran as the user: their key + injected session cookie.
+        # Ran as the user: their key (client built from it) + injected session cookie.
         assert launched["api_key"] == "pb-key"
         assert launched["argument"]["sessionCookie"] == "li_at=cookie"
         # Run closed out and profiles ingested.
