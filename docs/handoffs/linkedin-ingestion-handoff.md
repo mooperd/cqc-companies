@@ -1,4 +1,4 @@
-# Handoff — LinkedIn ingestion (ADR 0016): PWS0 (package the lib) done; PWS1 (depend + retire our client) is next
+# Handoff — LinkedIn ingestion (ADR 0016): PWS0+PWS1 done; PWS2 (resolve provider → linkedin_company_id) is next
 
 **Created:** 2026-07-02 · **Updated:** 2026-07-03
 **Working tree:** clean
@@ -27,28 +27,38 @@ core, Flask/SQLAlchemy a `[webapp]` extra) and the resolver consolidated into on
 managed `launch_resolution` + new ephemeral `resolve_ephemeral` paths). See plan
 PWS0 for the full verified exit.
 
-**Next session should pick up:** **PWS1** in
-[`docs/plans/linkedin-ingestion.md`](../plans/linkedin-ingestion.md#pws1--depend--retire-our-client)
-— in **this** repo (cqc-companies): add
-`phantombuster-lib @ git+https://github.com/mooperd/phantombuster-lib@2189f627cb14a811221c22cf7847efc9d67d9fec`
-(**pin to that exact commit** — the PWS0 merge) to `requirements.txt`, then
-**delete `phantombuster.py` + `test_phantombuster.py`** (superseded); keep the
-spike as the API record. Exit: the lib imports in cqc-companies; the offline suite
-is green without our client. Then PWS2 (resolver → verified
-`Provider.linkedin_company_id`) → PWS3 (consume rows → `Person`/`Role`).
+**PWS1 is DONE** (2026-07-03, commit `a28cedb` on `main`): pinned git dep added
+(`phantombuster-lib @ git+…@2189f627`), our stdlib `phantombuster.py` +
+`test_phantombuster.py` deleted. The ingest contract (`ScrapedProfile` +
+`parse_profile`/`parse_profiles`) moved to **new `linkedin_profiles.py`**
+(transport-free; PWS3 reuses it); `enrich_linkedin.run_identification_phantom`
+reworked onto the lib's `Phantombuster`. Offline suite green without our client.
+See plan PWS1.
+
+**Next session should pick up:** **PWS2** in
+[`docs/plans/linkedin-ingestion.md`](../plans/linkedin-ingestion.md#pws2--resolver-provider--numeric-companyid)
+— adopt the lib's **`cqc` Syndication client** for
+`brandName`/`brandId`/`companiesHouseNumber` (our bulk-CSV `Provider` doesn't
+store `brandName`; needs `CQC_SUBSCRIPTION_KEY`), run the lib resolver
+(`from resolver import search_term, launch_resolution`/`resolve_ephemeral`) to get
+the numeric LinkedIn id, **verify** the match against a CQC signal
+(website/town/CH number) before trusting it, and store **`Provider.linkedin_company_id`**
+(additive schema, ADR 0002; cache by `brandId` — one brand → many providers).
+Then PWS3 (consume rows → `Person`/`Role`, reusing `linkedin_profiles.parse_profiles`).
 
 **Verification command:**
 
 ```sh
-# Throwaway venv (no .venv in repo; /tmp one from this session is gone):
+# Throwaway venv (no .venv in repo; the /tmp one from this session may be gone).
+# Pulls phantombuster-lib from the pinned git commit — needs network:
 uv venv /tmp/cqc-venv --python 3.12 && uv pip install --python /tmp/cqc-venv/bin/python -r requirements.txt
 PY=/tmp/cqc-venv/bin/python
-# Offline suite green (cqc-companies side; NB phantombuster.py is slated for retirement in PWS1):
-for t in test_cqc_mapping test_cqc_refresh test_apply_events test_companies_house test_enrich_people test_statistics test_secrets_box test_phantombuster test_enrich_linkedin; do "$PY" $t.py >/dev/null && echo "$t OK"; done
+# Our stdlib client is gone; `from phantombuster import ...` must resolve to the lib:
+"$PY" -c "from phantombuster import Phantombuster; from cqc import CQC; from resolver import search_term; print('lib OK')"
+# Offline suite green without our client (test_phantombuster removed in PWS1):
+for t in test_cqc_mapping test_cqc_refresh test_apply_events test_companies_house test_enrich_people test_statistics test_secrets_box test_enrich_linkedin; do "$PY" $t.py >/dev/null && echo "$t OK"; done
 # Pivot docs present:
 grep -l "Amendment (2026-07-02)" docs/adr/0016-linkedin-phantombuster-ingestion.md
-# phantombuster-lib security fix merged:
-gh pr view 1 --repo mooperd/phantombuster-lib --json state --jq .state   # MERGED
 ```
 
 ## Done this session
@@ -64,6 +74,7 @@ gh pr view 1 --repo mooperd/phantombuster-lib --json state --jq .state   # MERGE
 | `ddb00dc` / `dd3e7ba` | **pivot** ADR 0016 → phantombuster-lib; plan rewritten (PWS0–PWS5) |
 | PR #1 (phantombuster-lib) | **security:** removed committed live API keys from the public repo |
 | **PR #2 (phantombuster-lib)** | **PWS0:** `pyproject.toml` + resolver consolidated into one `resolver/` package (merged `2189f627`) |
+| **`a28cedb`** | **PWS1:** depend on phantombuster-lib (pinned), retire our `phantombuster.py`; ingest contract → new `linkedin_profiles.py`; live driver → lib client |
 
 (Earlier in the session, all on `main`: resolved the data-freshness handoff, accepted ADR 0013/0014/0015, fixed stale ADR numbering, drafted ADR 0016.)
 
@@ -74,9 +85,18 @@ gh pr view 1 --repo mooperd/phantombuster-lib --json state --jq .state   # MERGE
 Merged as phantombuster-lib PR #2 (`2189f627`). See plan PWS0 for the verified
 exit. Pin PWS1's dependency to that commit.
 
-### 2. PWS1–PWS3 — integrate into cqc-companies (L) — **PWS1 is next**
+### 2. PWS2–PWS3 — integrate into cqc-companies (L) — **PWS2 is next**
 
-Add `phantombuster-lib @ git+...` (pin to a commit/tag); **retire `phantombuster.py`/`test_phantombuster.py`**; rework `enrich_linkedin` into a consumer of `RunResult.result` rows → `Person`/`Role` (ADR 0014 correlation, reusing the name/`job`/`profileUrl` mapping); add `Provider.linkedin_company_id`; adopt the lib's `cqc` Syndication client for `brandName` (needs `CQC_SUBSCRIPTION_KEY`). `PhantomRun` demoted to optional audit.
+**PWS1 done** (commit `a28cedb`): the lib is a pinned dependency, our client is
+retired, the ingest contract lives in `linkedin_profiles.py`, the live driver runs
+on the lib. Remaining:
+- **PWS2 (next):** adopt the lib's `cqc` Syndication client for `brandName` (needs
+  `CQC_SUBSCRIPTION_KEY`); run the lib resolver → verify the match against a CQC
+  signal → store additive **`Provider.linkedin_company_id`** (cache by `brandId`).
+- **PWS3:** rework `enrich_linkedin` into a consumer of the lib's `RunResult.result`
+  rows → `Person`/`Role` (ADR 0014 correlation, **reusing
+  `linkedin_profiles.parse_profiles`** — the name/`job`/`profileUrl` mapping is
+  already extracted). `PhantomRun` demoted to optional audit (PWS4).
 
 ### 3. PWS5 / ADR 0017 WS6 — durable erasure (M) — GATES real persistence
 
@@ -84,7 +104,7 @@ Add `phantombuster-lib @ git+...` (pin to a commit/tag); **retire `phantombuster
 
 ### 4. External: Andrew rotates the exposed keys (not us)
 
-phantombuster-lib's committed keys are removed from HEAD but remain in git history → **must be rotated** by the owner. Not blocking PWS0.
+phantombuster-lib's committed keys are removed from HEAD but remain in git history → **must be rotated** by the owner. Not blocking PWS2/PWS3 (offline work).
 
 ## Critical context
 
@@ -92,7 +112,14 @@ phantombuster-lib's committed keys are removed from HEAD but remain in git histo
 - **Confirmed employee field names** (locked in `parse_profile` + the spike): `profileUrl`, `name`, `firstName`, `lastName`, **`job`** (the title, e.g. "Nursing Manager at Care UK"), `location`, `query`. **No `companyName`** — company is in `job` and, authoritatively, in **`query`** (the input company URL). So an Employees Export run is **multi-company**: map each row → provider via `query`.
 - **Phantombuster account state:** agents exist — URL Finder `7669492412108381`, cqc Employees Export `6041032174032850` (a duplicate + a stray gist were cleaned up). A shared Drive **Sheet** feed exists (`1P7lON09neNgdK004v6q2faW9Fmy9cQcAqVNWuKnqB2A`). Our session PB key (`.env.local`) is **not** the exposed one — safe.
 - **Verified API facts** (spike `docs/spikes/phantombuster-api.md`): results at S3 `result.json` OR `containers/fetch-result-object`; **no API file-upload** (feed = a public URL: Google Sheet works, a Drive *file* URL doesn't); `launch-sync` streams, doesn't return rows; store phantoms can't be created via API (only org-owned custom scripts) — which is why the lib uses **custom** phantoms.
-- **`phantombuster-lib` shape:** `phantombuster/` (client: `run_and_wait`, `run_ephemeral`, `redact`) + `cqc/` (Syndication client) are the library; the valuable **resolver** (UK-HQ geo facet + `brandName` + numeric-id scrape) is in `webapp/` + `examples/` (not yet packaged). It uses `requests`, ms timestamps, and injects the `li_at` cookie via the argument.
+- **`phantombuster-lib` shape (post-PWS0):** three installable packages —
+  `phantombuster` (client: `launch`, `run_and_wait`, `run_ephemeral`, `get_result`,
+  `redact`), `cqc` (Syndication client), and **`resolver`** (the UK-HQ geo facet +
+  `brandName` + numeric-id scrape, phantom shipped as package data; exposes
+  `search_term`, `gather_cqc`, `launch_resolution` [managed] and `resolve_ephemeral`
+  [one-shot]). It uses `requests`, ms timestamps, and injects the `li_at` cookie via
+  the argument. On the cqc-companies side, our row→identity mapping lives in
+  `linkedin_profiles.py` (`ScrapedProfile` + `parse_profile`/`parse_profiles`).
 - **No `.venv`**; build a throwaway venv (verification command). The
   `/tmp/claude/pblib-work` clone **survived** the 2026-07-02→03 sessions (it's on
   `main` at the merged PWS0 commit); if it's gone next session, re-clone

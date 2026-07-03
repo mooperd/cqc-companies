@@ -62,11 +62,26 @@ git history).
 
 ### PWS1 — depend + retire our client
 
-**Status:** Open. Add the git dependency to `cqc-companies`; **delete
-`phantombuster.py`** + `test_phantombuster.py` (superseded). Keep the spike as the
-API record.
+**Status:** ✅ Done (2026-07-03, commit on `main`). Added the pinned git dependency
+`phantombuster-lib @ git+…@2189f627` to `requirements.txt`; **deleted
+`phantombuster.py` + `test_phantombuster.py`** (the retired stdlib transport). The
+API shapes it verified live are preserved in the spike.
 
-**Exit:** the lib imports in cqc-companies; suite green without our client.
+What landed beyond the literal delete (the transport was coupled to the ingest
+path, so retiring it touched two more places):
+- **`linkedin_profiles.py`** (new) holds the transport-free ingest contract that
+  used to live in `phantombuster.py`: `ScrapedProfile` + `parse_profile`/
+  `parse_profiles` — **the row→identity mapping PWS3 reuses** (incl. the
+  live-confirmed `job` field). Kept ours deliberately.
+- **`enrich_linkedin.run_identification_phantom`** reworked onto the lib's
+  `Phantombuster` (`launch` → `get_container` poll → `get_result` → `parse_profiles`
+  → ingest); client injectable for tests; PhantomRun status/credit semantics
+  preserved. `test_enrich_linkedin`'s lifecycle test now mocks a fake lib client
+  returning raw rows.
+
+**Verified:** `pip install -r requirements.txt` pulls the lib from the pinned
+commit; `from phantombuster import Phantombuster` resolves to the lib (our module
+is gone); the full offline suite is green without our client.
 
 ### PWS2 — resolver: provider → numeric `companyId`
 
