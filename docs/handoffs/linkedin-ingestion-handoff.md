@@ -1,4 +1,4 @@
-# Handoff — LinkedIn ingestion (ADR 0016): PWS0+PWS1 done; PWS2 (resolve provider → linkedin_company_id) is next
+# Handoff — LinkedIn ingestion (ADR 0016): PWS0–PWS2 done; PWS3 (consume rows → Person/Role) is next
 
 **Created:** 2026-07-02 · **Updated:** 2026-07-03
 **Working tree:** clean
@@ -27,24 +27,26 @@ core, Flask/SQLAlchemy a `[webapp]` extra) and the resolver consolidated into on
 managed `launch_resolution` + new ephemeral `resolve_ephemeral` paths). See plan
 PWS0 for the full verified exit.
 
-**PWS1 is DONE** (2026-07-03, commit `a28cedb` on `main`): pinned git dep added
-(`phantombuster-lib @ git+…@2189f627`), our stdlib `phantombuster.py` +
-`test_phantombuster.py` deleted. The ingest contract (`ScrapedProfile` +
-`parse_profile`/`parse_profiles`) moved to **new `linkedin_profiles.py`**
-(transport-free; PWS3 reuses it); `enrich_linkedin.run_identification_phantom`
-reworked onto the lib's `Phantombuster`. Offline suite green without our client.
-See plan PWS1.
+**PWS1 + PWS2 are DONE** (2026-07-03):
+- **PWS1** (`a28cedb`): pinned git dep added, our stdlib `phantombuster.py` +
+  `test_phantombuster.py` deleted; ingest contract moved to **`linkedin_profiles.py`**
+  (transport-free); `enrich_linkedin.run_identification_phantom` reworked onto the
+  lib's `Phantombuster`.
+- **PWS2** (`1e99e8a`): additive **`Provider.linkedin_company_id`**;
+  **`resolve_company_id.py`** — `verify_match` (website-domain / name / town gate)
+  + `resolve_provider` (injected lib `CQC` + resolver, brandId cache, store only if
+  verified) + gated `live_resolver`/`resolve_all`. Offline/fixture-tested; the
+  rbrecycling wrong-match is rejected.
 
-**Next session should pick up:** **PWS2** in
-[`docs/plans/linkedin-ingestion.md`](../plans/linkedin-ingestion.md#pws2--resolver-provider--numeric-companyid)
-— adopt the lib's **`cqc` Syndication client** for
-`brandName`/`brandId`/`companiesHouseNumber` (our bulk-CSV `Provider` doesn't
-store `brandName`; needs `CQC_SUBSCRIPTION_KEY`), run the lib resolver
-(`from resolver import search_term, launch_resolution`/`resolve_ephemeral`) to get
-the numeric LinkedIn id, **verify** the match against a CQC signal
-(website/town/CH number) before trusting it, and store **`Provider.linkedin_company_id`**
-(additive schema, ADR 0002; cache by `brandId` — one brand → many providers).
-Then PWS3 (consume rows → `Person`/`Role`, reusing `linkedin_profiles.parse_profiles`).
+**Next session should pick up:** **PWS3** in
+[`docs/plans/linkedin-ingestion.md`](../plans/linkedin-ingestion.md#pws3--consume-profiles--personrole)
+— rework `enrich_linkedin` into a consumer of the lib's `RunResult.result` rows:
+`Provider.linkedin_company_id` → LinkedIn **Search Export**
+(`currentCompany=["<companyId>"]`, via the lib) → rows → **`linkedin_profiles.parse_profiles`**
+(already extracted) → the ADR 0014 correlation in `sync_profiles`
+(`Role.source = phantombuster:*`, low confidence, **no merge into DOB-anchored CH
+directors**). `PhantomRun` demoted to optional audit (PWS4). Then PWS5 / ADR 0017
+WS6 (durable erasure) **gates the first real persistence**.
 
 **Verification command:**
 
@@ -56,7 +58,7 @@ PY=/tmp/cqc-venv/bin/python
 # Our stdlib client is gone; `from phantombuster import ...` must resolve to the lib:
 "$PY" -c "from phantombuster import Phantombuster; from cqc import CQC; from resolver import search_term; print('lib OK')"
 # Offline suite green without our client (test_phantombuster removed in PWS1):
-for t in test_cqc_mapping test_cqc_refresh test_apply_events test_companies_house test_enrich_people test_statistics test_secrets_box test_enrich_linkedin; do "$PY" $t.py >/dev/null && echo "$t OK"; done
+for t in test_cqc_mapping test_cqc_refresh test_apply_events test_companies_house test_enrich_people test_statistics test_secrets_box test_enrich_linkedin test_resolve_company_id; do "$PY" $t.py >/dev/null && echo "$t OK"; done
 # Pivot docs present:
 grep -l "Amendment (2026-07-02)" docs/adr/0016-linkedin-phantombuster-ingestion.md
 ```
@@ -75,6 +77,7 @@ grep -l "Amendment (2026-07-02)" docs/adr/0016-linkedin-phantombuster-ingestion.
 | PR #1 (phantombuster-lib) | **security:** removed committed live API keys from the public repo |
 | **PR #2 (phantombuster-lib)** | **PWS0:** `pyproject.toml` + resolver consolidated into one `resolver/` package (merged `2189f627`) |
 | **`a28cedb`** | **PWS1:** depend on phantombuster-lib (pinned), retire our `phantombuster.py`; ingest contract → new `linkedin_profiles.py`; live driver → lib client |
+| **`1e99e8a`** | **PWS2:** `Provider.linkedin_company_id` + `resolve_company_id.py` (verify gate + brandId cache); rbrecycling wrong-match rejected |
 
 (Earlier in the session, all on `main`: resolved the data-freshness handoff, accepted ADR 0013/0014/0015, fixed stale ADR numbering, drafted ADR 0016.)
 
@@ -85,18 +88,18 @@ grep -l "Amendment (2026-07-02)" docs/adr/0016-linkedin-phantombuster-ingestion.
 Merged as phantombuster-lib PR #2 (`2189f627`). See plan PWS0 for the verified
 exit. Pin PWS1's dependency to that commit.
 
-### 2. PWS2–PWS3 — integrate into cqc-companies (L) — **PWS2 is next**
+### 2. PWS3 — consume rows → Person/Role (L) — **next**
 
-**PWS1 done** (commit `a28cedb`): the lib is a pinned dependency, our client is
-retired, the ingest contract lives in `linkedin_profiles.py`, the live driver runs
-on the lib. Remaining:
-- **PWS2 (next):** adopt the lib's `cqc` Syndication client for `brandName` (needs
-  `CQC_SUBSCRIPTION_KEY`); run the lib resolver → verify the match against a CQC
-  signal → store additive **`Provider.linkedin_company_id`** (cache by `brandId`).
-- **PWS3:** rework `enrich_linkedin` into a consumer of the lib's `RunResult.result`
-  rows → `Person`/`Role` (ADR 0014 correlation, **reusing
-  `linkedin_profiles.parse_profiles`** — the name/`job`/`profileUrl` mapping is
-  already extracted). `PhantomRun` demoted to optional audit (PWS4).
+**PWS1 + PWS2 done** (`a28cedb`, `1e99e8a`): the lib is a pinned dependency, our
+client is retired, the ingest contract lives in `linkedin_profiles.py`, and
+providers resolve to a verified `Provider.linkedin_company_id`. Remaining:
+- **PWS3 (next):** rework `enrich_linkedin` into a consumer — `linkedin_company_id`
+  → LinkedIn **Search Export** (`currentCompany=["<companyId>"]`, via the lib) →
+  rows → **`linkedin_profiles.parse_profiles`** (already extracted) → `sync_profiles`
+  (ADR 0014 correlation, `Role.source = phantombuster:*`, low confidence, **no merge
+  into DOB-anchored CH directors**). `PhantomRun` demoted to optional audit (PWS4).
+  NB `sync_profiles`/`ingest_run` already exist and are green — PWS3 is mostly the
+  acquisition-flow front end + reusing them.
 
 ### 3. PWS5 / ADR 0017 WS6 — durable erasure (M) — GATES real persistence
 

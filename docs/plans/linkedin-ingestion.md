@@ -85,14 +85,25 @@ is gone); the full offline suite is green without our client.
 
 ### PWS2 — resolver: provider → numeric `companyId`
 
-**Status:** Open. Adopt the lib's **`cqc` Syndication client** for
-`brandName`/`brandId`/`companiesHouseNumber`; run the lib resolver (UK-HQ,
-brandName) → store **`Provider.linkedin_company_id`**. Verify the match against a
-CQC signal (website/town/CH number) before trusting it; cache by `brandId`
-(one brand → many providers).
+**Status:** ✅ Done (2026-07-03, commit `1e99e8a` on `main`).
 
-**Exit:** a provider resolves to a verified numeric companyId, persisted; a bad
-match (e.g. rbrecycling) is rejected by the verify gate.
+What landed (`resolve_company_id.py`, offline/fixture-tested — the live resolver
+call is gated):
+- additive **`Provider.linkedin_company_id`** (nullable, indexed; ADR 0002).
+- **`verify_match`** (pure) — the trust gate: website-domain agreement (hard
+  reject on mismatch) → **name similarity** (rejects the fuzzy-search wrong
+  company, e.g. `Scarborough Hall → rbrecycling`) → town corroboration.
+- **`resolve_provider`** — fetch `brandName`/`brandId`/`website`/town via the lib's
+  injected `CQC` client, run the injected resolver, `verify_match`, and store the id
+  only if verified; **caches `brandId → companyId`** so siblings under one brand
+  don't re-run the paid resolver; skips deregistered providers.
+- **`live_resolver` / `resolve_all`** — gated batch driver on the lib's
+  `Phantombuster` + ephemeral resolver phantom (needs real keys; not run offline).
+
+**Verified:** `test_resolve_company_id.py` — verified match stored + cached, brand
+cache hit skips the resolver, bad match rejected (nothing stored, cache
+unpoisoned), deregistered skipped, no-match, and the `verify_match` branches.
+Full offline suite green.
 
 ### PWS3 — consume profiles → `Person`/`Role`
 
