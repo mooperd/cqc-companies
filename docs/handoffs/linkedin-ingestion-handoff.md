@@ -1,6 +1,6 @@
-# Handoff — LinkedIn ingestion (ADR 0016): pivoted to phantombuster-lib; PWS0 (package the lib) is next
+# Handoff — LinkedIn ingestion (ADR 0016): PWS0 (package the lib) done; PWS1 (depend + retire our client) is next
 
-**Created:** 2026-07-02
+**Created:** 2026-07-02 · **Updated:** 2026-07-03
 **Working tree:** clean
 **Branch:** main
 
@@ -19,15 +19,23 @@ Built the offline store-phantom mechanism (WS1–3), proved it live end-to-end, 
 more mature parallel implementation. Also drafted ADR 0017 (GDPR posture) and fixed
 a security issue in phantombuster-lib.
 
-**Next session should pick up:** **PWS0** in
-[`docs/plans/linkedin-ingestion.md`](../plans/linkedin-ingestion.md#pws0--package-phantombuster-lib-cross-repo)
-— package `phantombuster-lib` (add `pyproject.toml`) and **promote/consolidate the
-resolver** (it lives in `webapp/resolver.py` + `webapp/resolver_phantom.js` *and* is
-re-implemented in `examples/cqc_to_linkedin.py` + `examples/linkedin_company_id.js`
-— two `.js` variants) into one importable `resolver` package. We have **WRITE
-access** — self-service PR we merge. Then PWS1 (add the git dep, retire our
-`phantombuster.py`) → PWS2 (resolver → `Provider.linkedin_company_id`, verified) →
-PWS3 (consume rows → `Person`/`Role`).
+**PWS0 is DONE** (2026-07-03, phantombuster-lib
+[PR #2](https://github.com/mooperd/phantombuster-lib/pull/2), rebase-merged):
+`pyproject.toml` added (packages `phantombuster`/`cqc`/`resolver`; `requests`
+core, Flask/SQLAlchemy a `[webapp]` extra) and the resolver consolidated into one
+`resolver/` package (canonical richer phantom shipped as package data; both
+managed `launch_resolution` + new ephemeral `resolve_ephemeral` paths). See plan
+PWS0 for the full verified exit.
+
+**Next session should pick up:** **PWS1** in
+[`docs/plans/linkedin-ingestion.md`](../plans/linkedin-ingestion.md#pws1--depend--retire-our-client)
+— in **this** repo (cqc-companies): add
+`phantombuster-lib @ git+https://github.com/mooperd/phantombuster-lib@2189f627cb14a811221c22cf7847efc9d67d9fec`
+(**pin to that exact commit** — the PWS0 merge) to `requirements.txt`, then
+**delete `phantombuster.py` + `test_phantombuster.py`** (superseded); keep the
+spike as the API record. Exit: the lib imports in cqc-companies; the offline suite
+is green without our client. Then PWS2 (resolver → verified
+`Provider.linkedin_company_id`) → PWS3 (consume rows → `Person`/`Role`).
 
 **Verification command:**
 
@@ -55,19 +63,18 @@ gh pr view 1 --repo mooperd/phantombuster-lib --json state --jq .state   # MERGE
 | `d6de91c` | parse_profile maps the Employees Export `job` field (confirmed live) |
 | `ddb00dc` / `dd3e7ba` | **pivot** ADR 0016 → phantombuster-lib; plan rewritten (PWS0–PWS5) |
 | PR #1 (phantombuster-lib) | **security:** removed committed live API keys from the public repo |
+| **PR #2 (phantombuster-lib)** | **PWS0:** `pyproject.toml` + resolver consolidated into one `resolver/` package (merged `2189f627`) |
 
 (Earlier in the session, all on `main`: resolved the data-freshness handoff, accepted ADR 0013/0014/0015, fixed stale ADR numbering, drafted ADR 0016.)
 
 ## Open follow-ups (priority-ordered)
 
-### 1. PWS0 — package phantombuster-lib + consolidate the resolver (M, cross-repo)
+### 1. ✅ PWS0 — package phantombuster-lib + consolidate the resolver — DONE (2026-07-03)
 
-See plan PWS0. Key facts already established:
-- **WRITE access confirmed** (default branch `main`, no CLAUDE.md conventions). Work on a branch → PR → merge (rebase, per global rules).
-- Add `pyproject.toml`: core dep `requests`; Flask/SQLAlchemy as a `[webapp]` extra (demo-only).
-- The resolver is **duplicated** — consolidate `webapp/resolver.py` + `examples` re-impl into one `resolver` package; ship the `.js` as package data (`os.path.dirname(__file__)`); repoint `webapp` (`from webapp import resolver`) + examples.
+Merged as phantombuster-lib PR #2 (`2189f627`). See plan PWS0 for the verified
+exit. Pin PWS1's dependency to that commit.
 
-### 2. PWS1–PWS3 — integrate into cqc-companies (L)
+### 2. PWS1–PWS3 — integrate into cqc-companies (L) — **PWS1 is next**
 
 Add `phantombuster-lib @ git+...` (pin to a commit/tag); **retire `phantombuster.py`/`test_phantombuster.py`**; rework `enrich_linkedin` into a consumer of `RunResult.result` rows → `Person`/`Role` (ADR 0014 correlation, reusing the name/`job`/`profileUrl` mapping); add `Provider.linkedin_company_id`; adopt the lib's `cqc` Syndication client for `brandName` (needs `CQC_SUBSCRIPTION_KEY`). `PhantomRun` demoted to optional audit.
 
@@ -86,7 +93,11 @@ phantombuster-lib's committed keys are removed from HEAD but remain in git histo
 - **Phantombuster account state:** agents exist — URL Finder `7669492412108381`, cqc Employees Export `6041032174032850` (a duplicate + a stray gist were cleaned up). A shared Drive **Sheet** feed exists (`1P7lON09neNgdK004v6q2faW9Fmy9cQcAqVNWuKnqB2A`). Our session PB key (`.env.local`) is **not** the exposed one — safe.
 - **Verified API facts** (spike `docs/spikes/phantombuster-api.md`): results at S3 `result.json` OR `containers/fetch-result-object`; **no API file-upload** (feed = a public URL: Google Sheet works, a Drive *file* URL doesn't); `launch-sync` streams, doesn't return rows; store phantoms can't be created via API (only org-owned custom scripts) — which is why the lib uses **custom** phantoms.
 - **`phantombuster-lib` shape:** `phantombuster/` (client: `run_and_wait`, `run_ephemeral`, `redact`) + `cqc/` (Syndication client) are the library; the valuable **resolver** (UK-HQ geo facet + `brandName` + numeric-id scrape) is in `webapp/` + `examples/` (not yet packaged). It uses `requests`, ms timestamps, and injects the `li_at` cookie via the argument.
-- **No `.venv`**; build a throwaway venv (verification command). `/tmp/claude/pblib-work` clone is gone next session — re-clone.
+- **No `.venv`**; build a throwaway venv (verification command). The
+  `/tmp/claude/pblib-work` clone **survived** the 2026-07-02→03 sessions (it's on
+  `main` at the merged PWS0 commit); if it's gone next session, re-clone
+  `mooperd/phantombuster-lib`. After PWS0, cqc-companies depends on the lib via a
+  pinned git URL — you no longer need the clone to *use* it, only to co-maintain it.
 
 ## References
 
