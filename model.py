@@ -21,6 +21,13 @@ class Provider(db.Model):
     county = db.Column(db.String(255))
     postcode = db.Column(db.String(20))
 
+    # The LinkedIn numeric company id (ADR 0016 PWS2), resolved from the trading
+    # brandName via phantombuster-lib's resolver and only stored once verified
+    # against a CQC signal (website domain / town). Nullable + indexed; one brand →
+    # many providers, so siblings under a brandId share the same id. Additive
+    # (ADR 0002 — create_all, no migration).
+    linkedin_company_id = db.Column(db.String(50), index=True)
+
     # Lifecycle + freshness (ADR 0015). active=False is a soft-delete for a
     # provider dropped from the CQC export (rows retained, queries filter on it).
     active = db.Column(db.Boolean, nullable=False, default=True)
