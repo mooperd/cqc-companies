@@ -112,6 +112,9 @@ class Person(db.Model):
     # How sure we are this is one real human: 'low' when created without a DOB
     # anchor (not auto-merged). See ADR 0014.
     match_confidence = db.Column(db.String(20))  # high | low
+    # When we first stored this person — the anchor for time-boxed retention and the
+    # Article 14 "where did you get my data" response (ADR 0017 §3/§4). Additive.
+    acquired_at = db.Column(db.DateTime)
 
     roles = db.relationship('Role', backref='person', lazy=True)
 
@@ -132,6 +135,21 @@ class Role(db.Model):
     end_date = db.Column(db.Date)
     # PSC natures_of_control summary (ownership %, voting rights); null for officers.
     control_nature = db.Column(db.Text)
+
+
+# An erasure/objection tombstone (ADR 0017 §5). NOT the profile — only a one-way
+# hash of a stable identifier (linkedin_url and/or normalised name) plus why + when.
+# Ingestion consults this BEFORE creating any Person, so an erased contact can never
+# be resurrected by a later scrape. Additive (ADR 0002).
+class SuppressedContact(db.Model):
+    __tablename__ = 'suppressed_contacts'
+    id = db.Column(db.Integer, primary_key=True)
+    # SHA-256 of a normalised identifier (see suppression.py). Unique so a repeat
+    # erasure is idempotent; indexed for the per-ingest lookup.
+    identifier_hash = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    key_type = db.Column(db.String(20), nullable=False)  # linkedin_url | name
+    reason = db.Column(db.String(255))
+    suppressed_at = db.Column(db.DateTime, nullable=False)
 
 
 # A queryable materialization of the git-committed change-event files (ADR 0015).

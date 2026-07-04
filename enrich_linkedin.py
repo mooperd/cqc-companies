@@ -34,6 +34,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import enrich_people as ep
+import suppression
 from enrich_people import Identity
 from linkedin_profiles import ScrapedProfile, parse_profiles
 from model import Person, Provider, Role, User, PhantomRun, db
@@ -65,11 +66,16 @@ def _identity_from_profile(profile: ScrapedProfile) -> Identity:
 
 
 def find_or_create_linkedin_person(session, identity: Identity,
-                                   linkedin_url: str | None) -> tuple[Person, bool]:
+                                   linkedin_url: str | None) -> tuple[Person | None, bool]:
     """Resolve a scraped profile to a Person. `linkedin_url` is the primary key
     (exact match = same person); otherwise fall back to ADR 0014's no-DOB name
     correlation, which by construction never merges into a DOB-anchored CH
-    director. Backfills `linkedin_url` onto a name-matched person."""
+    director. Backfills `linkedin_url` onto a name-matched person.
+
+    Returns (None, False) if the contact is suppressed (ADR 0017 §5) — checked on
+    the `linkedin_url` here and on the name inside `ep.find_or_create_person`."""
+    if linkedin_url and suppression.is_suppressed(session, linkedin_url=linkedin_url):
+        return None, False
     if linkedin_url:
         existing = session.query(Person).filter_by(linkedin_url=linkedin_url).first()
         if existing is not None:
@@ -80,6 +86,8 @@ def find_or_create_linkedin_person(session, identity: Identity,
     # Assert it rather than rely on the emergent property.
     assert identity.dob_year is None, "LinkedIn identities must be DOB-less (ADR 0016 §5)"
     person, created = ep.find_or_create_person(session, identity)
+    if person is None:
+        return None, False  # name-suppressed (ADR 0017 §5)
     if linkedin_url and not person.linkedin_url:
         person.linkedin_url = linkedin_url
     return person, created
@@ -95,12 +103,15 @@ def sync_profiles(session, provider: Provider, profiles, phantom: str) -> dict:
             Role.provider_id == provider.id, Role.source == source
         )
     }
-    persons_created = roles_created = roles_updated = 0
+    persons_created = roles_created = roles_updated = suppressed = 0
     for profile in profiles:
         identity = _identity_from_profile(profile)
         if not identity.surname:
             continue  # unparseable name — skip rather than create a junk Person
         person, created = find_or_create_linkedin_person(session, identity, profile.linkedin_url)
+        if person is None:
+            suppressed += 1  # erased contact — never re-create (ADR 0017 §5)
+            continue
         persons_created += int(created)
 
         role = existing.get(person.id)
@@ -121,6 +132,7 @@ def sync_profiles(session, provider: Provider, profiles, phantom: str) -> dict:
         "persons_created": persons_created,
         "roles_created": roles_created,
         "roles_updated": roles_updated,
+        "suppressed": suppressed,
         "profiles": len(profiles),
     }
 
@@ -194,6 +206,50 @@ def run_identification_phantom(
     credits = container.get("creditUsed") or container.get("credits")
     ingest_run(session, run, profiles, credits_spent=credits)
     return run
+
+
+# --- PWS3: acquire a provider's people via LinkedIn Search Export ---------------
+
+# The identification phantom used for company-scoped people discovery (ADR 0016 §1).
+SEARCH_EXPORT_PHANTOM = "sales-navigator-search-export"
+_LINKEDIN_PEOPLE_SEARCH = "https://www.linkedin.com/search/results/people/"
+
+
+def company_people_search_url(company_id: str) -> str:
+    """A LinkedIn people-search URL filtered to a company's current employees
+    (ADR 0016 amendment: ``currentCompany=["<companyId>"]``) — the input the Search
+    Export phantom scrapes. `company_id` is `Provider.linkedin_company_id` (PWS2)."""
+    from urllib.parse import quote
+
+    facet = quote(f'["{company_id}"]')
+    return f"{_LINKEDIN_PEOPLE_SEARCH}?currentCompany={facet}"
+
+
+def run_company_people(
+    session, user: User, provider: Provider, agent_id: str, *,
+    phantom: str = SEARCH_EXPORT_PHANTOM, client: Phantombuster | None = None,
+    extra_argument: dict | None = None, poll: float = _DEFAULT_POLL,
+    timeout: float = _DEFAULT_TIMEOUT,
+) -> PhantomRun:
+    """Gated live driver (PWS3): discover a provider's people via a LinkedIn Search
+    Export filtered to its resolved company, ingesting them into `Person`/`Role`.
+
+    Requires `provider.linkedin_company_id` (resolve it first — PWS2). Delegates to
+    `run_identification_phantom` for the launch→poll→fetch→parse→ingest lifecycle,
+    so every scraped person becomes a low-confidence `Person` + a
+    `phantombuster:<phantom>` `Role`, never merged into a DOB-anchored CH director.
+    """
+    if not provider.linkedin_company_id:
+        raise ValueError(
+            f"provider {provider.id} has no linkedin_company_id — resolve it first (PWS2)"
+        )
+    argument = {"search": company_people_search_url(provider.linkedin_company_id)}
+    if extra_argument:
+        argument.update(extra_argument)
+    return run_identification_phantom(
+        session, user, phantom, agent_id, argument, provider=provider,
+        client=client, poll=poll, timeout=timeout,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

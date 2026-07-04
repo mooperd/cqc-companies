@@ -45,7 +45,7 @@ def test_sync_creates_low_confidence_person_and_role():
         stats = el.sync_profiles(s, provider, profiles, "company-people-scraper")
         s.commit()
         assert stats == {"persons_created": 1, "roles_created": 1,
-                         "roles_updated": 0, "profiles": 1}, stats
+                         "roles_updated": 0, "suppressed": 0, "profiles": 1}, stats
         person = s.query(Person).one()
         assert person.match_confidence == "low" and person.dob_year is None
         assert person.linkedin_url == "https://linkedin.com/in/jane-smith"
@@ -111,7 +111,7 @@ def test_sync_is_idempotent():
         stats2 = el.sync_profiles(s, provider, profiles, "company-people-scraper")
         s.commit()
         assert stats2 == {"persons_created": 0, "roles_created": 0,
-                          "roles_updated": 0, "profiles": 1}, stats2
+                          "roles_updated": 0, "suppressed": 0, "profiles": 1}, stats2
         assert s.query(Person).count() == 1 and s.query(Role).count() == 1
     print("OK — sync_profiles: a no-op re-sync changes nothing")
 
@@ -170,10 +170,86 @@ def test_run_identification_phantom_full_lifecycle():
     print("OK — run_identification_phantom: launch→poll→fetch→ingest, run under the user")
 
 
+def test_company_people_search_url_filters_by_company():
+    url = el.company_people_search_url("68842389")
+    # currentCompany=["68842389"] URL-encoded (ADR 0016 amendment).
+    assert url == ('https://www.linkedin.com/search/results/people/'
+                   '?currentCompany=%5B%2268842389%22%5D'), url
+    print("OK — company_people_search_url: currentCompany=[\"<id>\"] people search")
+
+
+def test_run_company_people_requires_a_resolved_company_id():
+    with _session() as s:
+        provider = _provider(s)  # no linkedin_company_id
+        user = User(name="Rob", email="rob@shape.build")
+        user.phantombuster_api_key = "pb-key"
+        s.add(user)
+        s.flush()
+        try:
+            el.run_company_people(s, user, provider, "AGENT1")
+            assert False, "must refuse a provider with no linkedin_company_id"
+        except ValueError as e:
+            assert "resolve it first" in str(e), e
+    print("OK — run_company_people: refuses an unresolved provider (needs PWS2 id)")
+
+
+def test_run_company_people_ingests_search_export_rows():
+    with _session() as s:
+        provider = _provider(s)
+        provider.linkedin_company_id = "68842389"  # resolved by PWS2
+        user = User(name="Rob", email="rob@shape.build")
+        user.phantombuster_api_key = "pb-key"
+        user.linkedin_session_cookie = "li_at=cookie"
+        s.add(user)
+        s.flush()
+
+        launched = {}
+
+        class FakeClient:
+            def __init__(self, api_key):
+                launched["api_key"] = api_key
+
+            def launch(self, agent_id, argument=None):
+                launched["argument"] = argument
+                return "C1"
+
+            def get_container(self, container_id):
+                return {"status": "finished", "lastEndStatus": "success", "creditUsed": 4}
+
+            def get_result(self, container_id):
+                return [{"name": "Jane Smith", "profileUrl": "https://linkedin.com/in/jane",
+                         "job": "Registered Manager at Acme"},
+                        {"name": "Bob Jones", "profileUrl": "https://linkedin.com/in/bob",
+                         "job": "Head of Care"}]
+
+        orig = (el.Phantombuster, el.time.sleep)
+        el.Phantombuster = FakeClient
+        el.time.sleep = lambda _s: None
+        try:
+            run = el.run_company_people(s, user, provider, "SEARCH_EXPORT_AGENT")
+            s.commit()
+        finally:
+            el.Phantombuster, el.time.sleep = orig
+
+        # The Search Export ran filtered to the resolved company id.
+        assert launched["argument"]["search"].endswith("%5B%2268842389%22%5D")
+        assert launched["argument"]["sessionCookie"] == "li_at=cookie"
+        assert run.status == "finished" and run.credits_spent == 4
+        assert run.provider_id == provider.id
+        assert s.query(Person).count() == 2 and s.query(Role).count() == 2
+        assert {r.source for r in s.query(Role)} == {"phantombuster:sales-navigator-search-export"}
+        # Low-confidence, DOB-less (never a CH director).
+        assert all(p.match_confidence == "low" and p.dob_year is None for p in s.query(Person))
+    print("OK — run_company_people: Search Export rows → low-confidence Person/Role for the provider")
+
+
 if __name__ == "__main__":
     test_sync_creates_low_confidence_person_and_role()
     test_linkedin_url_is_the_dedup_key()
     test_no_auto_merge_into_companies_house_director()
     test_sync_is_idempotent()
     test_run_identification_phantom_full_lifecycle()
+    test_company_people_search_url_filters_by_company()
+    test_run_company_people_requires_a_resolved_company_id()
+    test_run_company_people_ingests_search_export_rows()
     print("\nAll LinkedIn ingestion tests passed.")

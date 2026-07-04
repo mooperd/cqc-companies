@@ -40,6 +40,7 @@ import companies_house as ch
 # Canonical change-event directory (ADR 0015): the CH producer writes one
 # companies-house-YYYY-MM-DD.json here per run, alongside cqc_refresh's cqc-*.json.
 # Shared with the applier rather than re-declared so the location has one home.
+import suppression
 from apply_events import CHANGES_DIR
 from model import ChangeEvent, Person, Provider, Role, db
 
@@ -132,9 +133,15 @@ def _nationalities_conflict(a: str | None, b: str | None) -> bool:
 # --- Person find-or-create (correlation) --------------------------------------
 
 
-def find_or_create_person(session, identity: Identity) -> tuple[Person, bool]:
+def find_or_create_person(session, identity: Identity) -> tuple[Person | None, bool]:
     """Resolve `identity` to a global Person, creating one if none matches.
-    Returns (person, created). See ADR 0014 for the correlation rules."""
+    Returns (person, created), or **(None, False) if the contact is suppressed**
+    (ADR 0017 §5): an erased person must never be re-created by any ingest path, so
+    the suppression check gates creation here, the single Person-creation choke
+    point. See ADR 0014 for the correlation rules."""
+    if suppression.is_suppressed(session, normalized_name=identity.normalized_name):
+        return None, False
+
     if identity.dob_year and identity.dob_month:
         # DOB-anchored: candidates share DOB + surname; confirm first forename
         # and a non-conflicting nationality.
@@ -169,6 +176,7 @@ def find_or_create_person(session, identity: Identity) -> tuple[Person, bool]:
         dob_month=identity.dob_month,
         nationality=identity.nationality,
         match_confidence=match_confidence,
+        acquired_at=dt.datetime.now(dt.timezone.utc),  # retention anchor (ADR 0017 §4)
     )
     session.add(person)
     session.flush()  # assign id + make findable by later lookups this run
@@ -319,6 +327,8 @@ def sync_provider(session, provider: Provider, officers, pscs, observed_at=None)
         if not identity.surname:
             continue  # unparseable name — skip rather than create a junk Person
         person, created = find_or_create_person(session, identity)
+        if person is None:
+            continue  # suppressed (erased) — never re-create (ADR 0017 §5)
         persons_created += int(created)
         persons_by_id[person.id] = person
         key = (person.id, role["source"])
