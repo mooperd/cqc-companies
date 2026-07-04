@@ -38,11 +38,16 @@ def _profile(name, url, headline="Registered Manager"):
                           company="Acme Care Ltd", location=None)
 
 
-def test_hash_is_deterministic_and_normalised():
-    assert sup.hash_identifier("  Jane   SMITH ") == sup.hash_identifier("jane smith")
-    assert len(sup.hash_identifier("x")) == 64  # sha-256 hex
-    assert sup.hash_identifier("a") != sup.hash_identifier("b")
-    print("OK — hash_identifier: normalised + deterministic + sha-256")
+def test_hash_is_deterministic_over_the_canonical_form():
+    # The hash is verbatim over the caller's canonical key (no in-module
+    # "normalisation") — so the suppression key == the ADR 0014 correlation key.
+    assert sup.hash_identifier("smith jane") == sup.hash_identifier("smith jane")
+    assert len(sup.hash_identifier("smith jane")) == 64  # sha-256 hex
+    assert sup.hash_identifier("smith jane") != sup.hash_identifier("smith john")
+    # Different representations are NOT folded together here — canonicalisation is
+    # the caller's job (Identity.normalized_name), because names can't be normalised.
+    assert sup.hash_identifier("Smith Jane") != sup.hash_identifier("smith jane")
+    print("OK — hash_identifier: verbatim over the caller's canonical form + sha-256")
 
 
 def test_suppress_is_idempotent_and_never_stores_the_value():
@@ -142,7 +147,7 @@ def test_retention_purge_removes_stale_scraped_contacts_only():
 
 
 if __name__ == "__main__":
-    test_hash_is_deterministic_and_normalised()
+    test_hash_is_deterministic_over_the_canonical_form()
     test_suppress_is_idempotent_and_never_stores_the_value()
     test_erase_person_deletes_person_and_roles_and_writes_tombstone()
     test_rescrape_cannot_resurrect_an_erased_person()

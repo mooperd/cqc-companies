@@ -138,7 +138,8 @@ class Role(db.Model):
 
 
 # An erasure/objection tombstone (ADR 0017 §5). NOT the profile — only a one-way
-# hash of a stable identifier (linkedin_url and/or normalised name) plus why + when.
+# hash of a stable identifier (linkedin_url and/or the canonical name form,
+# ADR 0014's normalized_name) plus why + when.
 # Ingestion consults this BEFORE creating any Person, so an erased contact can never
 # be resurrected by a later scrape. Additive (ADR 0002).
 class SuppressedContact(db.Model):

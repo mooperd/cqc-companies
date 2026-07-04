@@ -2,9 +2,12 @@
 
 An erasure/objection request deletes a `Person` (and their `Role`s) AND writes a
 `SuppressedContact` tombstone: a one-way **hash** of a stable identifier
-(`linkedin_url` and/or the normalised name) — never the profile itself. Every
-ingest path consults the suppression list **before** creating a `Person`, so a
-later scrape of the same company can't resurrect an erased contact. Without this,
+(`linkedin_url` and/or the canonical name form — ADR 0014's `normalized_name`,
+*not* a claim that names can be truly normalised) — never the profile itself. The
+hash is over the same canonical key the ingest path matches on, so suppression and
+correlation can't disagree. Every ingest path consults the suppression list
+**before** creating a `Person`, so a later scrape of the same company can't
+resurrect an erased contact. Without this,
 erasure is theatre (the monthly re-scrape brings them straight back).
 
 Separately, `purge_stale` implements time-boxed retention (ADR 0017 §4): it deletes
@@ -20,21 +23,25 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
-import re
 
 from sqlalchemy import exists
 
 from model import Person, Role, SuppressedContact
 
 
-def _normalize(value: str) -> str:
-    """Casefold + collapse whitespace so trivial variants hash the same."""
-    return re.sub(r"\s+", " ", value.strip().lower())
-
-
 def hash_identifier(value: str) -> str:
-    """SHA-256 of a normalised identifier — the suppression key."""
-    return hashlib.sha256(_normalize(value).encode("utf-8")).hexdigest()
+    """SHA-256 of an identifier — the suppression key.
+
+    The input must already be the **canonical representation the ingest path keys
+    on**: `Identity.normalized_name` (ADR 0014) for a name, the stored `linkedin_url`
+    for a profile. Hashing it verbatim makes the suppression key provably identical
+    to the correlation/dedup key, so "is this suppressed?" asks exactly "would ingest
+    treat this as the same person?". We deliberately do NOT attempt to *normalise* a
+    name here — names can't be canonicalised in general (ordering, diacritics,
+    nicknames, transliteration). We only reuse the one canonical form the system has
+    already committed to, with its known limits (ADR 0017 open knobs / walk-back:
+    `linkedin_url` is the strong key; name-only risks over-/under-suppression)."""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _keys(linkedin_url: str | None, normalized_name: str | None) -> list[tuple[str, str]]:
