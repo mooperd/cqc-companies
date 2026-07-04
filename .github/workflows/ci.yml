@@ -1,14 +1,12 @@
-name: PR checks
+name: CI
 
-# Fires on every PR against any branch, and on direct pushes to non-main
-# branches. The existing main.yml deploy workflow handles `push:main` and
-# already builds the image; this workflow's job is to catch obvious
-# problems *before* a merge to main is requested.
+# Fires on every PR and every push, including `main`. The old main.yml deploy
+# workflow (which used to cover push:main) was removed with the AKS teardown
+# (ADR 0008/0009 Withdrawn), so without this `main` would have no gate — and we
+# push straight to main. Catches obvious problems on every commit.
 on:
   pull_request:
   push:
-    branches-ignore:
-      - main
 
 permissions:
   contents: read
@@ -65,18 +63,25 @@ jobs:
           import companies_house  # CH officers + PSC client; stdlib-only
           import enrich_people  # CH officers + PSC -> Person/Role (WS2/WS4)
           import secrets_box  # per-user secret encryption (ADR 0016)
-          import phantombuster  # Phantombuster LinkedIn client; stdlib-only
+          import linkedin_profiles  # LinkedIn row->ScrapedProfile mapping (ADR 0016)
+          import resolve_company_id  # provider -> verified linkedin_company_id (PWS2)
           import enrich_linkedin  # LinkedIn profiles -> Person/Role (ADR 0016)
+          import suppression  # durable erasure + suppression (ADR 0017)
+          from phantombuster import Phantombuster  # phantombuster-lib (git dep, PWS1)
+          from resolver import search_term  # phantombuster-lib resolver (PWS2)
 
           # Change-event model (ADR 0015) wired up.
           assert hasattr(model, 'ChangeEvent') and hasattr(model, 'AppliedEventFile')
           assert 'active' in model.Provider.__table__.c
           print('ChangeEvent + provider lifecycle columns present')
 
-          # LinkedIn ingestion model (ADR 0016) wired up.
+          # LinkedIn ingestion model (ADR 0016 / 0017) wired up.
           assert hasattr(model, 'User') and hasattr(model, 'PhantomRun')
           assert 'linkedin_url' in model.Person.__table__.c
-          print('User + PhantomRun + Person.linkedin_url present')
+          assert 'linkedin_company_id' in model.Provider.__table__.c  # PWS2
+          assert 'acquired_at' in model.Person.__table__.c  # ADR 0017 retention
+          assert hasattr(model, 'SuppressedContact')  # ADR 0017 erasure tombstone
+          print('User + PhantomRun + Person.linkedin_url + linkedin_company_id + SuppressedContact present')
 
           # Sanity-check the Flask app actually wired up.
           routes = sorted(r.rule for r in app.app.url_map.iter_rules())
@@ -101,12 +106,35 @@ jobs:
           assert ep_parser.parse_args(['--limit', '5']).limit == 5
           print('enrich_people CLI parser OK')
 
-          # And the Phantombuster + LinkedIn-ingestion CLIs (ADR 0016).
-          pb_parser = phantombuster.build_parser()
-          assert pb_parser.parse_args(['result', 'AGENT1']).cmd == 'result'
+          # And the LinkedIn-ingestion CLI (ADR 0016).
           el_parser = enrich_linkedin.build_parser()
           assert el_parser.parse_args(
               ['--user-id', '1', '--provider-id', '2', '--phantom', 'x', '--agent-id', 'a']
           ).phantom == 'x'
-          print('phantombuster + enrich_linkedin CLI parsers OK')
+          print('enrich_linkedin CLI parser OK')
           PY
+
+  tests:
+    name: Offline test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run offline tests
+        # Every test_*.py is self-contained (in-memory SQLite, no live keys),
+        # so the whole suite runs here. A non-zero exit from any file fails the
+        # job (bash -e is the default shell).
+        run: |
+          for t in test_*.py; do
+            echo "::group::$t"
+            python "$t"
+            echo "::endgroup::"
+          done
