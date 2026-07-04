@@ -1,6 +1,10 @@
 # Plan — LinkedIn identification via Phantombuster (executing ADR 0016)
 
-**Status:** Active (started 2026-06-29).
+**Status:** Active (started 2026-06-29). **The code mechanism is complete —
+PWS0–PWS5 all landed (2026-07-03/04), offline/fixture-tested.** What remains is
+operational/external: a live run (real keys + credits) and the ADR 0017 legal
+sign-off (LIA, privacy notice, ICO). Closes when the first gated live run is
+authorised and executed.
 
 <!-- Status lifecycle: Proposed → Active → Closed (YYYY-MM-DD) -->
 
@@ -107,23 +111,45 @@ Full offline suite green.
 
 ### PWS3 — consume profiles → `Person`/`Role`
 
-**Status:** Open. Rework `enrich_linkedin` into a consumer: companyId → Search
-Export (via the lib) → rows → the ADR 0014 correlation (reusing the row→identity
-mapping: name / `job` / `profileUrl`), `Role.source = phantombuster:*`,
-low-confidence, no-merge-into-CH. `PhantomRun` demoted to optional audit.
+**Status:** ✅ Done (2026-07-04, commit `d01b13f`). `enrich_linkedin` gained the
+Search Export consumer: `company_people_search_url(company_id)` builds the
+`currentCompany=["<id>"]` people search; `run_company_people` wires
+`Provider.linkedin_company_id` → Search Export → the existing
+`run_identification_phantom` lifecycle (launch→poll→fetch→`parse_profiles`→
+`ingest_run`) on the lib client, reusing `sync_profiles` (low-confidence,
+linkedin_url dedup, **no merge into DOB-anchored CH directors**).
 
-**Exit:** `test_enrich_linkedin` green against the lib's `RunResult` row shape;
-linkedin_url dedup + no-CH-merge invariants preserved.
+**Verified:** `test_enrich_linkedin` — Search Export rows → low-confidence
+Person/Role for the provider; refuses an unresolved provider; the currentCompany
+filter + cookie injection assert; existing dedup/no-CH-merge invariants preserved.
 
 ### PWS4 — schema + config
 
-**Status:** Open. `Provider.linkedin_company_id` (additive, ADR 0002);
-`CQC_SUBSCRIPTION_KEY` in `.env.example`; decide `PhantomRun`'s fate.
+**Status:** ✅ Done. `Provider.linkedin_company_id` landed in PWS2;
+`.env.example` gains `CQC_SUBSCRIPTION_KEY` + `LINKEDIN_SESSION_COOKIE` (commit
+`d01b13f`). **`PhantomRun`'s fate: kept as the optional per-scrape audit record**
+(ADR 0016 amendment) — still written by `run_identification_phantom`, not on the
+critical path.
 
-### PWS5 — GDPR erasure (unchanged gate)
+### PWS5 — GDPR durable erasure (the persistence gate)
 
-Durable erasure ([ADR 0017](../adr/0017-gdpr-controller-posture.md), old WS6) still
-**gates the first real persistence** — build it before writing scraped people.
+**Status:** ✅ Done (2026-07-04, commit `d01b13f`) — implements
+[ADR 0017](../adr/0017-gdpr-controller-posture.md) §5, the load-bearing mechanism
+that gates real persistence.
+- `SuppressedContact` tombstone (hashed identifier + reason + date; never the
+  profile) + `Person.acquired_at` (retention anchor).
+- `suppression.py`: `is_suppressed`, `suppress`, `erase_person` (delete
+  Person+Roles, write tombstones), `purge_stale` (retention, no tombstone).
+- The suppression check gates **both** ingest paths before creating a `Person`
+  (`find_or_create_person` for CH, `find_or_create_linkedin_person` for LinkedIn).
+
+**Verified:** `test_suppression.py` — an erased person is deleted with a tombstone
+and a **re-scrape of their company does not resurrect them**; name-suppression
+also blocks the CH path; retention purge removes only stale, relationship-less,
+scraped contacts.
+
+**Still gated (outside code):** the first *live* scrape needs real keys **and** the
+ADR 0017 legal sign-off (a reviewed LIA, privacy notice, ICO registration).
 
 ## Prerequisites for a LIVE run (gates, not built here)
 
@@ -131,10 +157,10 @@ Durable erasure ([ADR 0017](../adr/0017-gdpr-controller-posture.md), old WS6) st
    (Sales Nav Search Export, Company People Scraper, Profile Data). No sandbox
    exists — live runs cost credits.
 2. **[ADR 0017](../adr/0017-gdpr-controller-posture.md) — GDPR controller posture
-   (Proposed).** The posture is now recorded, but its **durable-erasure
-   mechanism** (WS6) is the code that must ship before real personal data lands —
-   plus the legal sign-off it flags (a reviewed LIA, privacy notice, ICO
-   registration).
+   (Accepted).** The durable-erasure **mechanism has shipped** (PWS5 —
+   `suppression.py` + the on-ingest check). What remains is the **legal sign-off**
+   it flags — a reviewed LIA, the privacy-notice wording, ICO registration — which
+   code cannot certify and which must precede the first live scrape.
 3. **Per-user secrets populated** — a real `User` with their encrypted
    `linkedin_session_cookie` + `phantombuster_api_key`, plus `APP_SECRETS_KEY`
    configured for at-rest encryption.
@@ -240,10 +266,21 @@ this plan.)
 ## Phase exit criteria
 
 - [x] WS1 — User + Person.linkedin_url + PhantomRun build; secret round-trips encrypted.
-- [x] WS2 — Phantombuster client + parsers, fixture-tested.
+- [x] WS2 — Phantombuster client + parsers, fixture-tested. *(client since retired
+      for phantombuster-lib — PWS1.)*
 - [x] WS3 — profile→Person/Role with linkedin_url dedup + no-CH-merge, tested.
-- [x] CI smoke imports the new modules + asserts schema.
-- [ ] ADR 0016 Proposed → Accepted (after a live run proves the mechanism — WS4).
+- [x] PWS0 — phantombuster-lib packaged + resolver consolidated.
+- [x] PWS1 — depend on the lib; our stdlib client retired.
+- [x] PWS2 — provider → verified `Provider.linkedin_company_id`.
+- [x] PWS3 — Search Export consumer → `Person`/`Role`.
+- [x] PWS4 — schema + config (`.env.example`); `PhantomRun` = optional audit.
+- [x] PWS5 — durable erasure + suppression + retention (ADR 0017 §5).
+- [x] ADR 0016 Proposed → **Accepted** (mechanism complete + acquisition validated
+      live; the full consumer path is fixture-tested pending the gated live run).
+- [x] ADR 0017 Proposed → **Accepted** (erasure mechanism shipped; legal sign-off
+      remains an external prerequisite before the first live scrape).
+- [ ] **Live run** — execute the first gated identification run once keys + the
+      ADR 0017 legal sign-off are in place, then close this plan.
 
 ## References
 

@@ -1,11 +1,17 @@
 # ADR 0016 — LinkedIn identification via Phantombuster (the phantom-run runtime)
 
-**Status:** Proposed. *Drafted ahead of Phase 3.* **Amended 2026-07-02:** live
-Phase-3 validation + the discovery of the more-advanced
+**Status:** Accepted (2026-07-04). *Drafted ahead of Phase 3.* **Amended
+2026-07-02:** live Phase-3 validation + the discovery of the more-advanced
 [`mooperd/phantombuster-lib`](https://github.com/mooperd/phantombuster-lib)
 pivot the *acquisition mechanism* — see the Amendment below. The core decision
 (LinkedIn identification via Phantombuster → low-confidence `Person`/`Role`)
 stands; the store-phantom + spreadsheet-feed implementation is superseded.
+**Accepted after** the acquisition primitives were validated live (the resolver
+resolves a CQC brand to a numeric company id) and the full mechanism landed
+offline/fixture-tested (PWS0–PWS5, see
+[the plan](../plans/linkedin-ingestion.md)); the end-to-end *live* consumer run
+remains gated on real keys + the [ADR 0017](0017-gdpr-controller-posture.md) legal
+sign-off.
 
 <!--
 Scope: identification (scrape → Person/Role) ONLY. Action phantoms (Auto-Connect,

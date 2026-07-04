@@ -1,11 +1,13 @@
 # ADR 0017 — GDPR controller posture for scraped contact data
 
-**Status:** Proposed. *Records the posture + the mechanisms that make it operable.
-The legal sign-off it depends on (a reviewed Legitimate Interest Assessment, the
-privacy-notice wording, ICO registration) is **not** something this ADR or the
-code can certify — it must be done by someone qualified before the first live
-scrape. The one piece that is load-bearing in code — durable erasure (below) —
-should ship before real personal data lands.*
+**Status:** Accepted (2026-07-04). *Records the posture + the mechanisms that make
+it operable. The load-bearing code piece — durable erasure (§5) — **has shipped**
+(PWS5: `suppression.py` + the on-ingest suppression check; see
+[the plan](../plans/linkedin-ingestion.md)). The legal sign-off it depends on (a
+reviewed Legitimate Interest Assessment, the privacy-notice wording, ICO
+registration) is **not** something this ADR or the code can certify — it remains an
+external prerequisite that must be done by someone qualified **before the first
+live scrape**.*
 
 <!--
 Not legal advice. This is the engineering/product decision record for how the
