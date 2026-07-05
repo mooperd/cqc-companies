@@ -174,13 +174,10 @@ def run_identification_phantom(
     session.add(run)
     session.flush()
 
-    # The phantom acts as THIS user on LinkedIn — inject their session cookie.
-    cookie = user.linkedin_session_cookie
-    launch_arg = dict(argument)
-    if cookie:
-        launch_arg.setdefault("sessionCookie", cookie)
-
-    container_id = client.launch(agent_id, argument=launch_arg)
+    # The phantom runs under the LinkedIn session connected inside Phantombuster
+    # (its browser extension writes the sessionCookie) — we don't hold or inject it
+    # (ADR 0016 amendment 2026-07-05).
+    container_id = client.launch(agent_id, argument=argument)
     run.status, run.launched_at = "launched", dt.datetime.now(dt.timezone.utc)
 
     # Poll against a wall-clock deadline (not a += poll accumulator, which drifts

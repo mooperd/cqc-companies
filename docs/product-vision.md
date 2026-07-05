@@ -16,7 +16,7 @@ The three load-bearing goals, as agreed:
 
 **B. Mini CRM for tracking contact and touchpoints within those organisations.** Started. The `Contact` placeholder was deleted and replaced by a purpose-built CRM tier ([ADR 0012](adr/0012-crm-person-interaction-user-model.md)); `Person` has shipped, `Interaction` + `User` are next (see [`plans/crm-phase1.md`](plans/crm-phase1.md) and "Data shape" below).
 
-**C. Automated outreach to those decision-makers, with async human input when needed.** Not built. The "async human input" pattern is centered on a **`Task` table**: every pending human decision (approve an outbound draft, decide the next move on a reply, re-auth a stale LinkedIn cookie, "no response after touch 5 — keep going or stop?") is a database row. The web UI is the authoritative decision surface; WhatsApp and email are notification channels that *push* pending tasks to the right human and *reflect* their decision back into the row. This generalises beyond outreach approval — any work-item that the automation can't resolve alone surfaces as a Task.
+**C. Automated outreach to those decision-makers, with async human input when needed.** Not built. The "async human input" pattern is centered on a **`Task` table**: every pending human decision (approve an outbound draft, decide the next move on a reply, re-connect a stale LinkedIn session in Phantombuster, "no response after touch 5 — keep going or stop?") is a database row. The web UI is the authoritative decision surface; WhatsApp and email are notification channels that *push* pending tasks to the right human and *reflect* their decision back into the row. This generalises beyond outreach approval — any work-item that the automation can't resolve alone surfaces as a Task.
 
 ## Constraints and strategic decisions
 
@@ -47,7 +47,8 @@ Provider (organisation)             ← exists
         FK Person, FK User)
   └─ User (us)                       ← NEW (introduced in ADR 0012)
        (auth identity + per-user secrets:
-        linkedin_session_cookie, phantombuster_api_key, whatsapp_phone_number)
+        phantombuster_api_key, whatsapp_phone_number
+        — the LinkedIn session lives in Phantombuster, not here; ADR 0016)
   └─ phantom-run runtime model       ← TBD (Phase 3, ADR 0016)
        (likely a persisted entity tracking kind, inputs, status,
         outputs, credits spent — exact shape decided in 0016)

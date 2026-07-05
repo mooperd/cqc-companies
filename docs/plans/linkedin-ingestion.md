@@ -121,13 +121,17 @@ linkedin_url dedup, **no merge into DOB-anchored CH directors**).
 
 **Verified:** `test_enrich_linkedin` — Search Export rows → low-confidence
 Person/Role for the provider; refuses an unresolved provider; the currentCompany
-filter + cookie injection assert; existing dedup/no-CH-merge invariants preserved.
+filter asserts + asserts we inject **no** `sessionCookie` (Phantombuster owns the
+LinkedIn session — [ADR 0016 amendment 2026-07-05](../adr/0016-linkedin-phantombuster-ingestion.md#amendment-2026-07-05--the-linkedin-session-is-phantombusters-not-ours));
+existing dedup/no-CH-merge invariants preserved.
 
 ### PWS4 — schema + config
 
 **Status:** ✅ Done. `Provider.linkedin_company_id` landed in PWS2;
-`.env.example` gains `CQC_SUBSCRIPTION_KEY` + `LINKEDIN_SESSION_COOKIE` (commit
-`d01b13f`). **`PhantomRun`'s fate: kept as the optional per-scrape audit record**
+`.env.example` gains `CQC_SUBSCRIPTION_KEY` (commit `d01b13f`; the
+`LINKEDIN_SESSION_COOKIE` added then was removed 2026-07-05 —
+[ADR 0016 amendment](../adr/0016-linkedin-phantombuster-ingestion.md#amendment-2026-07-05--the-linkedin-session-is-phantombusters-not-ours),
+Phantombuster owns the LinkedIn session). **`PhantomRun`'s fate: kept as the optional per-scrape audit record**
 (ADR 0016 amendment) — still written by `run_identification_phantom`, not on the
 critical path.
 
@@ -161,9 +165,10 @@ ADR 0017 legal sign-off (a reviewed LIA, privacy notice, ICO registration).
    `suppression.py` + the on-ingest check). What remains is the **legal sign-off**
    it flags — a reviewed LIA, the privacy-notice wording, ICO registration — which
    code cannot certify and which must precede the first live scrape.
-3. **Per-user secrets populated** — a real `User` with their encrypted
-   `linkedin_session_cookie` + `phantombuster_api_key`, plus `APP_SECRETS_KEY`
-   configured for at-rest encryption.
+3. **Per-user secret populated** — a real `User` with their encrypted
+   `phantombuster_api_key`, plus `APP_SECRETS_KEY` configured for at-rest
+   encryption. (No LinkedIn cookie — Phantombuster's connected session is the
+   identity; [ADR 0016 amendment 2026-07-05](../adr/0016-linkedin-phantombuster-ingestion.md#amendment-2026-07-05--the-linkedin-session-is-phantombusters-not-ours).)
 
 ## Workstreams (historical — superseded by the 2026-07-02 pivot above)
 
@@ -181,8 +186,11 @@ schema from WS1 survives; `phantombuster.py`/`enrich_linkedin` are reworked.*
   `cryptography` dependency.
 - `model.py` (additive, [ADR 0002](../adr/0002-postgres-sqlalchemy-no-migrations.md)):
   - **`User`** (minimal): `id`, `name`, `email`, encrypted
-    `linkedin_session_cookie` + `phantombuster_api_key` (stored as `*_enc`
-    ciphertext columns; plaintext only ever in memory via `secrets_box`).
+    `phantombuster_api_key` (stored as a `*_enc` ciphertext column; plaintext only
+    ever in memory via `secrets_box`). *(WS1 also shipped an encrypted
+    `linkedin_session_cookie`, removed 2026-07-05 —
+    [ADR 0016 amendment](../adr/0016-linkedin-phantombuster-ingestion.md#amendment-2026-07-05--the-linkedin-session-is-phantombusters-not-ours);
+    Phantombuster owns the session.)*
   - **`Person.linkedin_url`** — nullable, indexed; the LinkedIn identity + dedup key.
   - **`PhantomRun`** — `id`, `phantom`, `user_id` FK, `provider_id` FK nullable,
     `input` JSON, `status` (queued|launched|running|finished|failed),

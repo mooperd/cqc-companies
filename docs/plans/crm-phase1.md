@@ -71,8 +71,9 @@ land nullable until WS3 exists, or WS2 can follow WS3.
 
 **Status:** Blocked on the app-auth ADR.
 
-`User` `(auth identity + per-user secrets: linkedin_session_cookie,
-phantombuster_api_key, whatsapp_phone_number)`. Needs the auth-mechanism
+`User` `(auth identity + per-user secrets: phantombuster_api_key,
+whatsapp_phone_number)` — the LinkedIn session is Phantombuster's, not stored
+here ([ADR 0016](../adr/0016-linkedin-phantombuster-ingestion.md)). Needs the auth-mechanism
 decision deferred in [ADR 0011](../adr/0011-defer-authentication.md) (Google
 OAuth vs magic-link vs single admin — product-vision Open Questions). Write that
 ADR first; it also owns the secrets-encryption posture.

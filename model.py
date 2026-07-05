@@ -201,22 +201,22 @@ class _EncryptedField:
         setattr(obj, self._col, secrets_box.encrypt(value) if value else None)
 
 
-# A team member doing outreach (ADR 0012, built minimally for ADR 0016). Acts
-# under their own LinkedIn identity, so phantoms run with THIS user's session +
-# Phantombuster key — both held encrypted at rest (the *_enc columns are
-# ciphertext; assign/read the plaintext via the _EncryptedField descriptors).
+# A team member doing outreach (ADR 0012, built minimally for ADR 0016). Phantoms
+# run under this user's Phantombuster key, held encrypted at rest (the *_enc column
+# is ciphertext; assign/read the plaintext via the _EncryptedField descriptor).
+# The LinkedIn *session* is NOT stored here — it's managed inside Phantombuster (its
+# browser extension connects the account and writes the phantom's sessionCookie), so
+# it's Phantombuster's concern, not ours (ADR 0016 amendment 2026-07-05).
 # Table is `app_user` because `user` is reserved in PostgreSQL.
 class User(db.Model):
     __tablename__ = 'app_user'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255))
     email = db.Column(db.String(255), unique=True, index=True)
-    # Ciphertext at rest; access the plaintext via the descriptors below.
-    linkedin_session_cookie_enc = db.Column(db.Text)
+    # Ciphertext at rest; access the plaintext via the descriptor below.
     phantombuster_api_key_enc = db.Column(db.Text)
-    # `user.linkedin_session_cookie = "..."` encrypts into linkedin_session_cookie_enc;
-    # reading it decrypts. Same for the Phantombuster key.
-    linkedin_session_cookie = _EncryptedField()
+    # `user.phantombuster_api_key = "..."` encrypts into phantombuster_api_key_enc;
+    # reading it decrypts.
     phantombuster_api_key = _EncryptedField()
 
     phantom_runs = db.relationship('PhantomRun', backref='user', lazy=True)

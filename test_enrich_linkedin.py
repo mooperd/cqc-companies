@@ -121,7 +121,6 @@ def test_run_identification_phantom_full_lifecycle():
         provider = _provider(s)
         user = User(name="Rob", email="rob@shape.build")
         user.phantombuster_api_key = "pb-key"
-        user.linkedin_session_cookie = "li_at=cookie"
         s.add(user)
         s.flush()
 
@@ -159,9 +158,10 @@ def test_run_identification_phantom_full_lifecycle():
         finally:
             el.Phantombuster, el.time.sleep = orig
 
-        # Ran as the user: their key (client built from it) + injected session cookie.
+        # Ran as the user: their Phantombuster key (client built from it). We inject
+        # no sessionCookie — Phantombuster owns the LinkedIn session (ADR 0016 amend).
         assert launched["api_key"] == "pb-key"
-        assert launched["argument"]["sessionCookie"] == "li_at=cookie"
+        assert "sessionCookie" not in launched["argument"]
         # Run closed out and profiles ingested.
         assert run.status == "finished" and run.credits_spent == 3
         assert run.finished_at is not None and run.provider_id == provider.id
@@ -199,7 +199,6 @@ def test_run_company_people_ingests_search_export_rows():
         provider.linkedin_company_id = "68842389"  # resolved by PWS2
         user = User(name="Rob", email="rob@shape.build")
         user.phantombuster_api_key = "pb-key"
-        user.linkedin_session_cookie = "li_at=cookie"
         s.add(user)
         s.flush()
 
@@ -231,9 +230,10 @@ def test_run_company_people_ingests_search_export_rows():
         finally:
             el.Phantombuster, el.time.sleep = orig
 
-        # The Search Export ran filtered to the resolved company id.
+        # The Search Export ran filtered to the resolved company id, with no
+        # sessionCookie of ours (Phantombuster owns the LinkedIn session).
         assert launched["argument"]["search"].endswith("%5B%2268842389%22%5D")
-        assert launched["argument"]["sessionCookie"] == "li_at=cookie"
+        assert "sessionCookie" not in launched["argument"]
         assert run.status == "finished" and run.credits_spent == 4
         assert run.provider_id == provider.id
         assert s.query(Person).count() == 2 and s.query(Role).count() == 2

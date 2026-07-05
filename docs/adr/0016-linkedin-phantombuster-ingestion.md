@@ -3,7 +3,9 @@
 **Status:** Accepted (2026-07-04). *Drafted ahead of Phase 3.* **Amended
 2026-07-02:** live Phase-3 validation + the discovery of the more-advanced
 [`mooperd/phantombuster-lib`](https://github.com/mooperd/phantombuster-lib)
-pivot the *acquisition mechanism* — see the Amendment below. The core decision
+pivot the *acquisition mechanism* — see the Amendment below. **Amended
+2026-07-05:** the LinkedIn session cookie is Phantombuster's to manage, not ours
+to store per-user — see the second Amendment. The core decision
 (LinkedIn identification via Phantombuster → low-confidence `Person`/`Role`)
 stands; the store-phantom + spreadsheet-feed implementation is superseded.
 **Accepted after** the acquisition primitives were validated live (the resolver
@@ -77,6 +79,40 @@ duplicate acquisition stack. The `PhantomRun`/store-phantom design in the
 original Decision below is the historical record; §1–§5 here override its
 *mechanism*. The implementation plan is
 [`docs/plans/linkedin-ingestion.md`](../plans/linkedin-ingestion.md).
+
+## Amendment (2026-07-05) — the LinkedIn session is Phantombuster's, not ours
+
+The original design stored a per-user `li_at` **LinkedIn session cookie**
+encrypted on the `User` row and injected it into every phantom launch as the
+`argument.sessionCookie` (§2, §4 above; the original Decision §… "per-user
+`linkedin_session_cookie`"). We remove that entirely.
+
+**Decision:** we do **not** hold, encrypt, or inject a LinkedIn session cookie. A
+phantom runs under the LinkedIn session **connected inside Phantombuster** — its
+browser extension "connect" writes the account's `sessionCookie` onto the agent,
+and launching an agent (or the lib's ephemeral resolver) with no `sessionCookie`
+argument uses that stored identity. This is Phantombuster's tooling boundary, not
+ours to reproduce.
+
+**What changes:**
+- **`User`** drops `linkedin_session_cookie` / `linkedin_session_cookie_enc`; it
+  keeps only the encrypted `phantombuster_api_key` (still genuinely ours — it
+  authenticates *our* calls to Phantombuster's REST API). `secrets_box` stays.
+- **`enrich_linkedin.run_identification_phantom`** launches with the phantom
+  `argument` verbatim — no cookie merge.
+- **`resolve_company_id.live_resolver`** drops its `cookie` passthrough; the lib's
+  `resolve_ephemeral` defaults `cookie=None`.
+- **`.env.example`** drops `LINKEDIN_SESSION_COOKIE`.
+
+**Why:** we'd only ever populated it from Phantombuster's own connected session in
+the first place (no separate cookie-harvesting step existed), so storing it was
+redundant state — and a live personal credential we'd rather not hold under
+ADR 0017 if Phantombuster already does. Consequence: identity is per-Phantombuster
+**account/agent**, not per-`User`; if genuine per-user LinkedIn identities are ever
+needed, they return as a deliberate re-introduction, not a latent half-feature. The
+spike's note that the extension "connect" merely writes the `sessionCookie` field
+([`docs/spikes/phantombuster-api.md`](../spikes/phantombuster-api.md)) is exactly
+why this is safe.
 
 **Consequence — we co-maintain the dependency.** `phantombuster-lib` is a
 mooperd repo we have write access to, so depending on it means co-owning it, not

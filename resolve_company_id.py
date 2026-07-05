@@ -168,14 +168,15 @@ def resolve_provider(
 # --- Gated live driver (needs a Phantombuster key + LinkedIn session) ----------
 
 
-def live_resolver(pb, *, cookie: str | None = None,
-                  timeout: float = 280, poll: float = 6) -> Resolver:
+def live_resolver(pb, *, timeout: float = 280, poll: float = 6) -> Resolver:
     """Build a `Resolver` that runs phantombuster-lib's ephemeral resolver phantom.
-    Not exercised offline — it launches a real LinkedIn scrape."""
+    Not exercised offline — it launches a real LinkedIn scrape. The LinkedIn session
+    is managed inside Phantombuster (ADR 0016 amendment 2026-07-05), so no cookie is
+    passed from here."""
     from resolver import resolve_ephemeral  # imported lazily so offline tests need no pb
 
     def _resolve(term: str) -> dict | None:
-        run = resolve_ephemeral(pb, term, cookie=cookie, timeout=timeout, poll=poll)
+        run = resolve_ephemeral(pb, term, timeout=timeout, poll=poll)
         return run.result[0] if run.result else None
 
     return _resolve

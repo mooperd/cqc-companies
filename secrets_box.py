@@ -1,6 +1,7 @@
-"""At-rest encryption for per-user secrets — the LinkedIn session cookie and
-Phantombuster API key a `User` runs phantoms under (ADR 0016, the per-user model
-from ADR 0012).
+"""At-rest encryption for per-user secrets — the Phantombuster API key a `User`
+runs phantoms under (ADR 0016, the per-user model from ADR 0012). The LinkedIn
+session itself is not stored here; Phantombuster manages it (ADR 0016 amendment
+2026-07-05).
 
 Fernet (AES-128-CBC + HMAC-SHA256) keyed off the `APP_SECRETS_KEY` env var.
 **Fail-closed:** handling a secret without a configured key raises, so a real
