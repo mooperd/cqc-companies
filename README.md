@@ -96,12 +96,34 @@ layer you're dealing with:
 LinkedIn people), share a **`pg_dump`**, not the seeds. To hand them a
 *reproducible base*, the committed seed CSVs + the scripts are enough.
 
+### Working with a database dump
+
+To **create** a dump (contains personal data — [ADR 0017](docs/adr/0017-gdpr-controller-posture.md);
+`*.sql`/`*.sql.gz` are gitignored so they can't be committed):
+
 ```sh
-# Dump (contains personal data — ADR 0017; *.sql/.sql.gz are gitignored):
 pg_dump darwinist | gzip > darwinist-dump.sql.gz
-# Restore:
-createdb target && gunzip -c darwinist-dump.sql.gz | psql -d target
 ```
+
+To **restore** one someone shared with you:
+
+```sh
+createdb cqc                                             # a fresh target DB
+gunzip -c darwinist-dump.sql.gz | psql -d cqc            # load it
+export DATABASE_URL="postgresql://<user>@localhost:5432/cqc"
+uv run python init_db.py                                 # patch schema to current model.py
+uv run python app.py                                     # browse it
+```
+
+`init_db.py` after a restore matters: a dump captures the schema *as it was when
+dumped*, so if `model.py` has moved on, `init_db.py` additively brings the restored
+DB up to date (it won't touch the data).
+
+**Handling caveat:** a dump is real personal data leaving one machine and landing
+on another. Delete it when you're done, and don't put it anywhere it could be
+committed or indexed. How to distribute scraped data *without* passing whole dumps
+around is an open design question — see
+[docs/spikes/scraped-data-distribution.md](docs/spikes/scraped-data-distribution.md).
 
 ## LinkedIn decision-maker identification (ADR 0016)
 
