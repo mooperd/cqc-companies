@@ -16,3 +16,8 @@ client_secret*
 .claude/
 .tldr/
 .tldrignore
+
+# Database dumps — contain personal data (ADR 0017); never commit
+*.sql
+*.sql.gz
+darwinist-dump-*
