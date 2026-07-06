@@ -86,13 +86,13 @@ profileUrl, name, firstName, lastName, job, location, connectionDegree, query, t
 
 ## Still UNCONFIRMED → needs one live run (or the Phantombuster MCP)
 
-1. **Per-phantom result field names.** `fullName` / `firstName`+`lastName`,
-   `linkedInProfileUrl` vs `profileUrl`, `headline` vs `title`/`jobTitle`,
-   `companyName`, `location` are INFERRED from PB's CSV-header conventions and
-   integration mappings, **not** seen in a raw `result.json`. `parse_profile` is
-   tolerant + case-insensitive to absorb variation, but the candidate-key list
-   should be validated against real output. *This is the single most important
-   thing to confirm before trusting ingested data.*
+1. ~~**Per-phantom result field names.**~~ **CONFIRMED for the Search Export
+   (2026-07-06)** via a live run — see
+   [linkedin-acquisition-approach](linkedin-acquisition-approach.md#exp-2--store-search-export-path-a-pii-gated).
+   Real keys: `fullName`, `firstName`/`lastName`, `headline`, `jobTitle`,
+   `profileUrl`/`linkedinProfileUrl`, `company`/`companyId`/`companySlug`,
+   `location`, `query`, `vmid`, … `parse_profile`'s tolerant candidate-key list
+   handled them unchanged (`fullName`→name, `headline`→headline, `profileUrl`→url).
 2. **Per-phantom launch argument keys.** The input field names (the company/search
    URL param, the profile-count limit) differ per phantom and are partly
    inferred (`spreadsheetUrl`, `numberOfProfiles`, `profileUrl` singular). Wrong

@@ -162,8 +162,10 @@ def scrape(pb, session: Session, user: User, provider: Provider, agent_id: str,
     print(f"\n  ingested: {len(people)} LinkedIn person(s)")
     for p in people[:10]:
         r = session.query(Role).filter_by(person_id=p.id).first()
+        # control_nature holds the scraped LinkedIn headline; role_type is the
+        # coarse "influencer" bucket, so the headline is the useful line here.
         print(f"    - {p.name!r}  conf={p.match_confidence}  "
-              f"role={(r.role_type if r else None)!r}  {p.linkedin_url}")
+              f"headline={(r.control_nature if r else None)!r}  {p.linkedin_url}")
 
 
 def build_parser() -> argparse.ArgumentParser:

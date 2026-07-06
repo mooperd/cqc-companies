@@ -1,8 +1,8 @@
 # Spike — LinkedIn acquisition: Puppeteer API vs Phantombuster store phantom
 
-**Status:** Resolved (2026-07-06) for the architecture decision (Exp 1 + Exp 3
-below). Exp 2 (store-phantom people scrape) remains a gated confirmation, not a
-blocker for the decision.
+**Status:** Resolved (2026-07-06). All three experiments run: cookie injection is a
+dead end (Exp 1), no-auth id lookup works (Exp 3), and the store Search Export scrapes
+real people end to end once the session is fresh (Exp 2). Decision below.
 
 **Question.** Our custom Phantombuster *resolver* phantom (company name → LinkedIn
 numeric id, PWS2) runs clean but returns **nothing** — LinkedIn serves it an empty
@@ -129,6 +129,33 @@ Also surfaced **two real bugs in our success gate**, now fixed + regression-test
 phantoms finish with `lastEndStatus None`; and a "finished" container can still be a
 failure (`exitCode 84`). The gate now keys on **exitCode == 0** (matching the lib's
 own `RunResult.succeeded`).
+
+**Re-run after reconnecting the session (2026-07-06): full success.** Once the
+agent's identity cookie fingerprint actually changed (the reconnect had to write
+through to *this* agent's identity, not just the central account — a fiddly
+Phantombuster UI step), the scrape returned **10 real Barchester people**, ingested
+as low-confidence Person + Role, `linkedin_url`-deduped, none merged into CH
+directors. The full PWS2→PWS3 consumer path works end to end against live data.
+
+**Confirmed result field names** (the phantombuster-api spike's #1 open item — the
+Search Export `result.json`, not the Employees Export):
+
+```
+additionalInfo, category, company, company2, companyId, companySlug, companyUrl,
+companyUrl2, connectionDegree, firstName, fullName, headline, industry,
+jobDateRange, jobTitle, lastName, linkedinProfileUrl, location, profileImageUrl,
+profileUrl, query, school, schoolDegree, searchAccountFullName, timestamp, vmid
+```
+
+Our tolerant `parse_profile` handled them correctly with no change: `fullName`→name,
+`headline`→the stored headline (in `Role.control_nature`), `profileUrl`→`linkedin_url`.
+Note the Search Export title field is **`jobTitle`/`headline`**, not the Employees
+Export's `job` — our candidate-key list already covered both. The `companyId` /
+`companySlug` fields are a future cross-check against the resolved company id.
+
+Caveat for outreach: the Search Export returns **all** current-company people
+unranked (a Kitchen Assistant next to a Head of IT Operations), so title-based
+seniority filtering/ranking is a downstream concern, not the scraper's job.
 
 ## Findings
 
