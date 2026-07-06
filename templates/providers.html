@@ -135,10 +135,11 @@
                     <div class="card-header bg-primary text-white">
                         <div class="row">
                             <div class="col-md-8">
-                                <h5><strong>{{ provider.name }}</strong></h5>
+                                <h5><strong><a href="/provider/{{ provider.id }}" class="text-white">{{ provider.name }}</a></strong></h5>
                                 {% if provider.cqc_provider_id %}
                                 <small>CQC Provider ID: {{ provider.cqc_provider_id }}</small>
                                 {% endif %}
+                                <a href="/provider/{{ provider.id }}" class="text-white"><small>· view people ↗</small></a>
                             </div>
                             <div class="col-md-4 text-end">
                                 <span class="badge bg-light text-dark">{{ provider.facilities|length }}

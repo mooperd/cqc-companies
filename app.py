@@ -5,12 +5,13 @@ import base64
 import secrets
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, redirect, url_for, flash
-from model import db, Provider, Facility
+from model import db, Provider, Facility, Role
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import numpy as np
 from sqlalchemy import func, case
+from sqlalchemy.orm import joinedload
 
 load_dotenv()
 
@@ -288,6 +289,26 @@ def providers():
                          service_types_filter=service_types_filter,
                          specialisms_options=specialisms_options,
                          service_types_options=service_types_options)
+
+@app.route('/provider/<int:provider_id>')
+def provider_detail(provider_id):
+    """A provider's people (ADR 0014): the Person rows tied to it by Role, grouped
+    by where each fact came from — LinkedIn scrapes (ADR 0016), Companies House
+    enrichment (ADR 0013), or manual. Each role carries the source-specific detail
+    (a scraped headline, a directorship, a PSC nature) in control_nature."""
+    provider = Provider.query.get_or_404(provider_id)
+    # Eager-load each role's Person (many-to-one) to avoid an N+1 across the roles.
+    roles = (Role.query.options(joinedload(Role.person))
+             .filter_by(provider_id=provider_id)
+             .order_by(Role.source, Role.id).all())
+
+    # Fixed, meaningful group order; empty groups are dropped in the template.
+    groups = {'LinkedIn': [], 'Companies House': [], 'Other': []}
+    for role in roles:
+        groups[role.source_category].append(role)
+
+    return render_template('provider_detail.html',
+                           provider=provider, groups=groups, people_count=len(roles))
 
 @app.route('/statistics')
 def statistics():

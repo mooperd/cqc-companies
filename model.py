@@ -136,6 +136,17 @@ class Role(db.Model):
     # PSC natures_of_control summary (ownership %, voting rights); null for officers.
     control_nature = db.Column(db.Text)
 
+    @property
+    def source_category(self) -> str:
+        """Coarse provenance bucket for display/grouping — the one enforced reading
+        of the `source` prefix vocabulary documented above (so views and any future
+        consumer share a single definition rather than re-deriving the prefixes)."""
+        if self.source.startswith('phantombuster'):
+            return 'LinkedIn'
+        if self.source.startswith('companies_house'):
+            return 'Companies House'
+        return 'Other'
+
 
 # An erasure/objection tombstone (ADR 0017 §5). NOT the profile — only a one-way
 # hash of a stable identifier (linkedin_url and/or the canonical name form,
