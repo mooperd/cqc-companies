@@ -32,12 +32,21 @@ import logging
 import os
 import sys
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+# Load config BEFORE the imports below pull in phantombuster-lib's resolver, which
+# captures PB_SOURCE_AGENT into a module-level constant at import time. If we defer
+# this to main(), the resolver binds its default (nonexistent) source agent and the
+# cookie borrow fails with "Agent not found".
+from dotenv import load_dotenv
 
-import enrich_linkedin
-from model import Provider, User, db
-from resolve_company_id import verify_match
+load_dotenv()
+load_dotenv(".env.local", override=True)
+
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
+
+import enrich_linkedin  # noqa: E402
+from model import Provider, User, db  # noqa: E402
+from resolve_company_id import verify_match  # noqa: E402
 
 logger = logging.getLogger("run_extraction")
 
@@ -91,20 +100,22 @@ def pick_provider(session: Session, *, provider_id: int | None, name: str | None
     return provider
 
 
-def resolve(pb, session: Session, provider: Provider, *, force: bool) -> None:
-    """Run the live resolver on the provider's name, verify the match against our own
-    website/town, and store the LinkedIn company id (unless `force`, which stores an
-    unverified match — for eyeballing during a test)."""
+def resolve(pb, session: Session, provider: Provider, *, force: bool,
+            keywords: str | None = None) -> None:
+    """Run the live resolver, verify the match against our own website/town, and store
+    the LinkedIn company id (unless `force`, which stores an unverified match — for
+    eyeballing during a test).
+
+    Without `keywords` this searches on provider.name (the CQC-registered legal name
+    from the bulk CSV), whereas the production path (resolve_company_id.resolve_provider)
+    searches on the CQC Syndication `brandName` — the trading name LinkedIn actually
+    lists. LinkedIn's company search often finds nothing for a full legal name, so
+    `--keywords` lets you supply the trading brand directly (this tool takes no CQC
+    key, so it can't fetch brandName itself)."""
     from resolver import resolve_ephemeral
 
-    # NB this searches on provider.name (the CQC-registered legal name from the bulk
-    # CSV), whereas the production path (resolve_company_id.resolve_provider) searches
-    # on the CQC Syndication `brandName` — the trading name LinkedIn actually lists.
-    # So a green result here is a weaker approximation of the real resolver; a
-    # provider whose brand differs from its legal name may resolve differently at
-    # scale. This tool deliberately takes no CQC key, hence the legal name.
-    term = provider.name
-    logger.info("resolving %r (CQC legal name, not brandName) via the resolver…", term)
+    term = keywords or provider.name
+    logger.info("resolving %r via the resolver…", term)
     run = resolve_ephemeral(pb, term)
     li = run.result[0] if run.result else None
     if not li or not li.get("companyId"):
@@ -158,6 +169,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scrape", action="store_true",
                    help="run the Search Export people scrape (spends credits, real personal data)")
     p.add_argument("--force", action="store_true", help="store an unverified resolver match")
+    p.add_argument("--keywords", help="override the resolver search term "
+                   "(default: provider name; use the trading brand LinkedIn lists)")
     p.add_argument("--email", default=DEFAULT_EMAIL, help="User to run as (find-or-create)")
     return p
 
@@ -165,11 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = build_parser().parse_args(argv)
-
-    from dotenv import load_dotenv
-
-    load_dotenv()
-    load_dotenv(".env.local", override=True)
+    # .env is loaded at import time (module top) — before the resolver is imported.
 
     api_key = os.environ.get("PHANTOMBUSTER_API_KEY")
     agent_id = os.environ.get("PB_SEARCH_EXPORT_AGENT")
@@ -197,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
             session.flush()
             print(f"  set linkedin_company_id = {args.company_id}")
         elif args.resolve:
-            resolve(pb, session, provider, force=args.force)
+            resolve(pb, session, provider, force=args.force, keywords=args.keywords)
 
         if not args.scrape:
             session.commit()
