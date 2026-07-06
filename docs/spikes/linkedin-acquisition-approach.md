@@ -1,16 +1,30 @@
 # Spike — LinkedIn acquisition: Puppeteer API vs Phantombuster store phantom
 
-**Status:** Resolved (2026-07-06). All three experiments run: cookie injection is a
-dead end (Exp 1), no-auth id lookup works (Exp 3), and the store Search Export scrapes
-real people end to end once the session is fresh (Exp 2). Decision below.
+**Status:** Resolved (2026-07-06), with an important **correction 2026-07-06**
+(see below): the "cookie injection is a dead end" reading of Exp 1 was contaminated
+by a stale session and is **retracted**. Net finding stands — the no-auth id lookup
+(Exp 3) is the simplest resolver and the store Search Export (Exp 2) scrapes people —
+but *not* because cookie injection fails.
+
+> **Correction (2026-07-06) — the custom resolver is NOT broken.** Every early test
+> of the custom resolver ran against the **stale** session (the empty `search ->
+> vanity:` results, and Exp 1's local-Puppeteer login wall, all used the same expired
+> `li_at`). Re-run **after** the session was reconnected, the resolver's **search step
+> works**: `search -> vanity: barchester-healthcare`. So injecting `li_at` alone *does*
+> authenticate LinkedIn — Exp 1's "dead end" was just a stale cookie. The resolver now
+> fails one step later, at the About-page scrape, with `net::ERR_ABORTED` — a fixable
+> navigation error, and the `companyId` it's after is exactly what Exp 3 gets from the
+> public page with no auth. **Consequence for the decision:** choosing the no-auth
+> resolver over fixing the custom phantom is a call on *simplicity* (no session, no
+> credits, no scrape fragility), not because the phantom is broken. The rest of this
+> doc predates the correction; read Exp 1's conclusion through this lens.
 
 **Question.** Our custom Phantombuster *resolver* phantom (company name → LinkedIn
-numeric id, PWS2) runs clean but returns **nothing** — LinkedIn serves it an empty
-company-search page (`search -> vanity:` blank, exit 0), from a Scaleway
-datacenter container injecting only `li_at`. That is the signature of LinkedIn
-walling a datacenter IP. This spike asks: **what acquisition mechanism do we
-commit to** — and specifically, is driving Puppeteer *ourselves* better than a
-custom Phantombuster phantom, and where does the maintained *store* phantom sit?
+numeric id, PWS2) was returning **nothing** — an empty company-search page
+(`search -> vanity:` blank, exit 0). We *first* read this as a datacenter-IP wall;
+it turned out to be a **stale session** (corrected above). This spike asks: **what
+acquisition mechanism do we commit to** — is driving Puppeteer *ourselves* better
+than a custom Phantombuster phantom, and where does the maintained *store* phantom sit?
 
 See the ADR-0016 direction and the [phantombuster-api spike](phantombuster-api.md)
 for the transport facts already established.
@@ -43,24 +57,21 @@ Run headless Puppeteer **locally** (residential IP) with the borrowed `li_at`,
 navigate LinkedIn, and dump title + final URL. Isolates the variable the datacenter
 phantom couldn't: **is it the IP or the cookie?**
 
-**Result (2026-07-06): the cookie, not the IP. Cookie injection does not
-authenticate.** Injecting the borrowed `li_at` into a fresh local (residential-IP)
-Chromium and hitting `/feed/`:
+**Result (2026-07-06): the cookie — but a STALE one (see correction).** Injecting the
+borrowed `li_at` into a fresh local (residential-IP) Chromium and hitting `/feed/`:
 - domain `.linkedin.com` → `ERR_TOO_MANY_REDIRECTS` (login redirect loop).
 - domain `.www.linkedin.com` (exactly how the resolver phantom sets it) → lands on
   **`/login/?session_redirect=…`**, title *"LinkedIn Login, Sign in"*.
 
-So the resolver phantom's empty result was **not** primarily the datacenter IP — it
-got the login/authwall (no `/company/` links → blank vanity), and it would fail the
-same way anywhere. **You cannot lift `li_at` and drive your own browser with it** —
-LinkedIn rejects a bare cookie in a foreign browser/session context. The store
-phantoms work because they run *inside Phantombuster's managed, already-authenticated
-session* (the extension "connect" establishes it), not by cookie injection. Our
-custom resolver injects a cookie the same way this probe did, and dies the same way.
-
-Corollary: **self-hosted Puppeteer for *authenticated* LinkedIn is a dead end**
-unless you do a full interactive login in that browser and keep it warm — at which
-point you're rebuilding Phantombuster's session infra.
+**⚠️ Retracted conclusion.** At the time I read this as "cookie injection does not
+authenticate, full stop." That was wrong: **this test used the expired `li_at`** (the
+same stale cookie that made Exp 2 fail with "Session cookie not valid anymore"). After
+the session was reconnected, the custom resolver — which injects `li_at` exactly the
+same way — **authenticated the LinkedIn company search** (`search -> vanity:
+barchester-healthcare`). So a *fresh* `li_at` injection **does** work; this probe only
+proved a *stale* one doesn't. Self-hosted Puppeteer for authenticated LinkedIn is
+therefore **not** a proven dead end — this experiment should be re-run with a fresh
+cookie before drawing that conclusion.
 
 ### Exp 2 — Store Search Export (Path A), PII-gated
 
@@ -159,30 +170,34 @@ seniority filtering/ranking is a downstream concern, not the scraper's job.
 
 ## Findings
 
-1. **Cookie injection is a dead end** (Exp 1). A lifted `li_at` does not authenticate
-   a foreign browser — LinkedIn bounces to `/login`, regardless of IP. This kills
-   both self-hosted Puppeteer *and* the custom Phantombuster resolver phantom for any
-   **authenticated** LinkedIn action. The store phantoms work only because they run
-   inside Phantombuster's managed authenticated session.
+1. **Cookie injection works with a *fresh* session** (Exp 1, corrected). The early
+   "lifted `li_at` bounces to `/login`" result used the **stale** cookie; re-run after
+   reconnecting, the resolver authenticated the LinkedIn company search. So injecting
+   `li_at` is **not** a dead end. The custom resolver's remaining failure is a later,
+   fixable `net::ERR_ABORTED` on the About-page scrape — not an auth wall.
 2. **Company-id resolution needs no auth at all** (Exp 3). The numeric id is in the
    public page HTML; slug-guess + a title/website verify resolves it for free — no
-   Puppeteer, no Phantombuster, no credits, no anti-detection war. The custom resolver
-   phantom was the heaviest possible tool for a problem that's a plain HTTP GET.
-3. **People scraping genuinely needs the managed authenticated session** — it's the
-   one thing cookie-injection can't replicate — so it stays leased on the store
-   Search Export (pending Exp 2 to confirm it returns rows + the field names).
+   Puppeteer, no Phantombuster, no credits, no anti-detection war. Even the custom
+   resolver's *failing* step (get the id off the authed About page) is redundant with
+   this. **This is the simplest resolver, and the reason to prefer it — not that the
+   phantom is broken.**
+3. **People scraping needs the managed authenticated session** — a live scrape at
+   volume — so it stays leased on the store Search Export (Exp 2 confirmed it returns
+   rows + the field names, once the session is fresh).
 
 ## Decision input (feeds the ADR)
 
-The clean split: **own the no-auth resolution, lease the authed people-scrape.**
+The split: **own the no-auth resolution (for simplicity), lease the authed
+people-scrape.**
 
-- **Replace** the phantombuster-lib custom *resolver* phantom (PWS2) with an in-repo
-  **no-auth resolver**: brand → slug/search → public page → `urn:li:organization:<N>`
-  → `verify_match`. Drops the resolver's cookie-borrow (`PB_SOURCE_AGENT`), the
-  ephemeral-phantom credits, and the whole blocking problem we hit.
-- **Keep** the store **Search Export** (PWS3) for people — do NOT self-host it and do
-  NOT port it to a custom phantom; both inherit the Exp-1 authwall. This reverses the
-  earlier "port Search Export into the lib like the resolver" idea: the resolver is
-  the thing to pull *out* of a phantom, not the model to copy.
+- **Prefer** an in-repo **no-auth resolver** for PWS2: brand → slug/search → public
+  page → `urn:li:organization:<N>` → `verify_match`. Not because the custom phantom
+  fails (it mostly works with a fresh session — see the correction), but because the
+  no-auth path needs **no session, no credits, no scrape fragility** for a problem
+  that's a plain HTTP GET. (Alternatively, the custom phantom's About-page step could
+  be fixed or routed through the public page — a live option, chosen 2026-07-06, being
+  implemented.)
+- **Keep** the store **Search Export** (PWS3) for people — a live authenticated scrape
+  is genuinely needed there.
 - This should become an amendment to [ADR 0016](../adr/0016-linkedin-phantombuster-ingestion.md)
   and reshape the [plan](../plans/linkedin-ingestion.md)'s PWS2.
