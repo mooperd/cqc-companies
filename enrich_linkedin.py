@@ -206,8 +206,16 @@ def run_identification_phantom(
         run.status, run.error = "failed", "timed out waiting for the phantom"
         return run
 
-    if not (container.get("status") == "finished" and container.get("lastEndStatus") == "success"):
-        run.status, run.error = "failed", f"phantom ended: {container.get('lastEndStatus') or container.get('status')}"
+    # Success = a clean finish with exit code 0 (the lib's own RunResult.succeeded
+    # gates the same way). NOT lastEndStatus == "success": store phantoms return
+    # lastEndStatus None even on success, AND a "finished" container can still be a
+    # failure — an expired LinkedIn session finishes with lastEndStatus None but
+    # exitCode 84 ("Session cookie not valid anymore"). Both confirmed live
+    # 2026-07-06; see docs/spikes/phantombuster-api.md. So gate on exitCode.
+    exit_code = container.get("exitCode")
+    if container.get("status") != "finished" or (exit_code is not None and int(exit_code) != 0):
+        run.status = "failed"
+        run.error = f"phantom exit={exit_code} status={container.get('status')}"
         return run
 
     profiles = parse_profiles(client.get_result(container_id))

@@ -140,7 +140,9 @@ def test_run_identification_phantom_full_lifecycle():
                 return "C1"
 
             def get_container(self, container_id):
-                return {"status": "finished", "lastEndStatus": "success", "creditUsed": 3}
+                # Store phantoms finish with lastEndStatus None even on success;
+                # exitCode 0 is the real success signal (regression guard 2026-07-06).
+                return {"status": "finished", "lastEndStatus": None, "exitCode": 0, "creditUsed": 3}
 
             def get_result(self, container_id):
                 return [{"name": "Jane Smith", "profileUrl": "https://linkedin.com/in/jane",
@@ -169,6 +171,45 @@ def test_run_identification_phantom_full_lifecycle():
         assert s.query(Person).count() == 2 and s.query(Role).count() == 2
         assert {r.source for r in s.query(Role)} == {"phantombuster:company-people-scraper"}
     print("OK — run_identification_phantom: launch→poll→fetch→ingest, run under the user")
+
+
+def test_run_fails_on_nonzero_exit_without_fetching():
+    """A 'finished' container with a non-zero exit code is a failure (e.g. exit 84,
+    'Session cookie not valid anymore'), even though lastEndStatus is None. The run
+    is marked failed and no result is fetched/ingested (regression: 2026-07-06)."""
+    with _session() as s:
+        provider = _provider(s)
+        user = User(name="Rob", email="rob@shape.build")
+        user.phantombuster_api_key = "pb-key"
+        s.add(user)
+        s.flush()
+
+        fetched = {"called": False}
+
+        class FakeClient:
+            def __init__(self, api_key): pass
+            def launch(self, agent_id, argument=None, bonus_argument=None): return "C1"
+            def get_container(self, container_id):
+                return {"status": "finished", "lastEndStatus": None, "exitCode": 84}
+            def get_result(self, container_id):
+                fetched["called"] = True
+                return []
+
+        orig = (el.Phantombuster, el.time.sleep)
+        el.Phantombuster = FakeClient
+        el.time.sleep = lambda _s: None
+        try:
+            run = el.run_identification_phantom(
+                s, user, "linkedin-search-export", "AGENT1", {"x": 1}, provider=provider)
+            s.commit()
+        finally:
+            el.Phantombuster, el.time.sleep = orig
+
+        assert run.status == "failed", run.status
+        assert "84" in (run.error or ""), run.error
+        assert fetched["called"] is False, "must not fetch a result from a failed run"
+        assert s.query(Person).count() == 0
+    print("OK — run_identification_phantom: non-zero exit → failed, no fetch")
 
 
 def test_company_people_search_url_filters_by_company():
@@ -215,7 +256,7 @@ def test_run_company_people_ingests_search_export_rows():
                 return "C1"
 
             def get_container(self, container_id):
-                return {"status": "finished", "lastEndStatus": "success", "creditUsed": 4}
+                return {"status": "finished", "lastEndStatus": None, "exitCode": 0, "creditUsed": 4}
 
             def get_result(self, container_id):
                 return [{"name": "Jane Smith", "profileUrl": "https://linkedin.com/in/jane",
@@ -253,6 +294,7 @@ if __name__ == "__main__":
     test_no_auto_merge_into_companies_house_director()
     test_sync_is_idempotent()
     test_run_identification_phantom_full_lifecycle()
+    test_run_fails_on_nonzero_exit_without_fetching()
     test_company_people_search_url_filters_by_company()
     test_run_company_people_requires_a_resolved_company_id()
     test_run_company_people_ingests_search_export_rows()

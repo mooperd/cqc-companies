@@ -104,7 +104,31 @@ title/website verification (reuse `verify_match`) to avoid wrong matches.
 
 ### Exp 2 — Store Search Export (Path A), PII-gated
 
-**Result:** _(pending — needs a company id (have them now) + ADR-0017 go-ahead)._
+**Result (2026-07-06): our code drives it correctly; blocked only by a stale
+Phantombuster↔LinkedIn session.** Ran the store Search Export for Barchester
+(company 80128, `--limit 10`). The phantom's own log confirms our per-run argument
+landed exactly right:
+
+```
+ℹ️ Input: .../search/results/people/?currentCompany=["80128"]
+ℹ️ Number of results to scrape per launch: 10
+🔄 Connecting to LinkedIn...
+❌ Session cookie not valid anymore. Please log in to LinkedIn to get a new one.
+Process finished with an error (exit code: 84)
+```
+
+So the `linkedInSearchUrl` key + bonus-argument merge + `--limit` all work. **Zero
+people because the connected LinkedIn session has expired** — the same root cause as
+Exp 1's cookie failure: the session stored on the agent is stale. Fix is operational,
+not code: **reconnect LinkedIn in the Phantombuster UI** (browser extension), then
+re-run. Session expiry is a recurring operational fact (this is the "re-auth a stale
+LinkedIn session" Task in [product-vision](../product-vision.md)).
+
+Also surfaced **two real bugs in our success gate**, now fixed + regression-tested:
+`run_identification_phantom` hard-gated on `lastEndStatus == "success"`, but store
+phantoms finish with `lastEndStatus None`; and a "finished" container can still be a
+failure (`exitCode 84`). The gate now keys on **exitCode == 0** (matching the lib's
+own `RunResult.succeeded`).
 
 ## Findings
 

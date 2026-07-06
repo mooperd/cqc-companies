@@ -133,13 +133,20 @@ def resolve(pb, session: Session, provider: Provider, *, force: bool,
     print(f"  stored provider.linkedin_company_id = {provider.linkedin_company_id}")
 
 
-def scrape(pb, session: Session, user: User, provider: Provider, agent_id: str) -> None:
+def scrape(pb, session: Session, user: User, provider: Provider, agent_id: str,
+           limit: int | None = None) -> None:
     """Run the Search Export for the provider's resolved company and report the run,
-    the raw result field names, and the ingested Person/Role rows."""
+    the raw result field names, and the ingested Person/Role rows. `limit` caps the
+    profiles scraped (minimises credits + personal data for a test)."""
     client = _CapturingClient(pb)
-    logger.info("launching Search Export (agent %s) for company %s…",
-                agent_id, provider.linkedin_company_id)
-    run = enrich_linkedin.run_company_people(session, user, provider, agent_id, client=client)
+    # Cap results as a bonus argument merged onto the agent's saved base.
+    extra = ({"numberOfResultsPerLaunch": limit, "numberOfResultsPerSearch": limit}
+             if limit else None)
+    logger.info("launching Search Export (agent %s) for company %s%s…",
+                agent_id, provider.linkedin_company_id,
+                f", limit {limit}" if limit else "")
+    run = enrich_linkedin.run_company_people(
+        session, user, provider, agent_id, client=client, extra_argument=extra)
     session.commit()
 
     print(f"\n  run {run.id}: status={run.status} credits={run.credits_spent} "
@@ -171,6 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="store an unverified resolver match")
     p.add_argument("--keywords", help="override the resolver search term "
                    "(default: provider name; use the trading brand LinkedIn lists)")
+    p.add_argument("--limit", type=int, help="cap profiles scraped (minimise credits + PII)")
     p.add_argument("--email", default=DEFAULT_EMAIL, help="User to run as (find-or-create)")
     return p
 
@@ -217,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
         if not provider.linkedin_company_id:
             sys.exit("provider has no linkedin_company_id — pass --resolve or --company-id")
         user = find_or_create_user(session, args.email, api_key)
-        scrape(pb, session, user, provider, agent_id)
+        scrape(pb, session, user, provider, agent_id, limit=args.limit)
     return 0
 
 
