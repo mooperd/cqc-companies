@@ -158,6 +158,7 @@ def run_identification_phantom(
     session, user: User, phantom: str, agent_id: str, argument: dict,
     provider: Provider | None = None, client: Phantombuster | None = None,
     poll: float = _DEFAULT_POLL, timeout: float = _DEFAULT_TIMEOUT,
+    bonus: bool = False,
 ) -> PhantomRun:
     """Gated live driver (WS4): create a PhantomRun, launch the agent under the
     user's LinkedIn session + Phantombuster key, poll to completion, fetch the
@@ -166,6 +167,13 @@ def run_identification_phantom(
 
     Transport is phantombuster-lib's ``Phantombuster`` (PWS1). ``client`` is
     injectable for testing; by default one is built from the user's API key.
+
+    ``bonus`` selects how ``argument`` is applied. A full ``argument`` *replaces*
+    the agent's saved argument for the run; a store phantom (e.g. Search Export)
+    keeps its connected LinkedIn identity + limits in that saved argument, so we
+    pass only our per-run keys as ``bonus_argument`` (merged onto the saved base)
+    instead of clobbering it. ``bonus=True`` does that; the recorded ``input`` is
+    the same either way.
     """
     client = client or Phantombuster(user.phantombuster_api_key)
     run = PhantomRun(phantom=phantom, user_id=user.id,
@@ -177,7 +185,10 @@ def run_identification_phantom(
     # The phantom runs under the LinkedIn session connected inside Phantombuster
     # (its browser extension writes the sessionCookie) — we don't hold or inject it
     # (ADR 0016 amendment 2026-07-05).
-    container_id = client.launch(agent_id, argument=argument)
+    if bonus:
+        container_id = client.launch(agent_id, bonus_argument=argument)
+    else:
+        container_id = client.launch(agent_id, argument=argument)
     run.status, run.launched_at = "launched", dt.datetime.now(dt.timezone.utc)
 
     # Poll against a wall-clock deadline (not a += poll accumulator, which drifts
@@ -208,7 +219,11 @@ def run_identification_phantom(
 # --- PWS3: acquire a provider's people via LinkedIn Search Export ---------------
 
 # The identification phantom used for company-scoped people discovery (ADR 0016 §1).
-SEARCH_EXPORT_PHANTOM = "sales-navigator-search-export"
+# The store "LinkedIn Search Export" phantom; its per-run input key is
+# `linkedInSearchUrl` (confirmed via agents/fetch, 2026-07-06 — not the `search`
+# we'd inferred).
+SEARCH_EXPORT_PHANTOM = "linkedin-search-export"
+SEARCH_EXPORT_URL_KEY = "linkedInSearchUrl"
 _LINKEDIN_PEOPLE_SEARCH = "https://www.linkedin.com/search/results/people/"
 
 
@@ -240,12 +255,15 @@ def run_company_people(
         raise ValueError(
             f"provider {provider.id} has no linkedin_company_id — resolve it first (PWS2)"
         )
-    argument = {"search": company_people_search_url(provider.linkedin_company_id)}
+    # Override only the search URL as a bonus argument — the agent's saved base
+    # argument (its connected LinkedIn identity/cookie, result limits, searchType)
+    # is preserved. Sending a full `argument` would replace all of that.
+    argument = {SEARCH_EXPORT_URL_KEY: company_people_search_url(provider.linkedin_company_id)}
     if extra_argument:
         argument.update(extra_argument)
     return run_identification_phantom(
         session, user, phantom, agent_id, argument, provider=provider,
-        client=client, poll=poll, timeout=timeout,
+        client=client, poll=poll, timeout=timeout, bonus=True,
     )
 
 

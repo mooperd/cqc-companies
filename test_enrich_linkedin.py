@@ -133,9 +133,10 @@ def test_run_identification_phantom_full_lifecycle():
             def __init__(self, api_key):
                 launched["api_key"] = api_key
 
-            def launch(self, agent_id, argument=None):
+            def launch(self, agent_id, argument=None, bonus_argument=None):
                 launched["agent_id"] = agent_id
                 launched["argument"] = argument
+                launched["bonus_argument"] = bonus_argument
                 return "C1"
 
             def get_container(self, container_id):
@@ -208,8 +209,9 @@ def test_run_company_people_ingests_search_export_rows():
             def __init__(self, api_key):
                 launched["api_key"] = api_key
 
-            def launch(self, agent_id, argument=None):
+            def launch(self, agent_id, argument=None, bonus_argument=None):
                 launched["argument"] = argument
+                launched["bonus_argument"] = bonus_argument
                 return "C1"
 
             def get_container(self, container_id):
@@ -230,14 +232,16 @@ def test_run_company_people_ingests_search_export_rows():
         finally:
             el.Phantombuster, el.time.sleep = orig
 
-        # The Search Export ran filtered to the resolved company id, with no
-        # sessionCookie of ours (Phantombuster owns the LinkedIn session).
-        assert launched["argument"]["search"].endswith("%5B%2268842389%22%5D")
-        assert "sessionCookie" not in launched["argument"]
+        # The search URL rides in as a BONUS argument (key `linkedInSearchUrl`), so
+        # the agent's saved base — its connected LinkedIn identity, limits — is kept,
+        # not replaced. No full `argument`, no sessionCookie of ours.
+        assert launched["argument"] is None
+        assert launched["bonus_argument"]["linkedInSearchUrl"].endswith("%5B%2268842389%22%5D")
+        assert "sessionCookie" not in launched["bonus_argument"]
         assert run.status == "finished" and run.credits_spent == 4
         assert run.provider_id == provider.id
         assert s.query(Person).count() == 2 and s.query(Role).count() == 2
-        assert {r.source for r in s.query(Role)} == {"phantombuster:sales-navigator-search-export"}
+        assert {r.source for r in s.query(Role)} == {"phantombuster:linkedin-search-export"}
         # Low-confidence, DOB-less (never a CH director).
         assert all(p.match_confidence == "low" and p.dob_year is None for p in s.query(Person))
     print("OK — run_company_people: Search Export rows → low-confidence Person/Role for the provider")
