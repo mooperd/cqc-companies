@@ -104,10 +104,18 @@ call is gated):
 - **`live_resolver` / `resolve_all`** — gated batch driver on the lib's
   `Phantombuster` + ephemeral resolver phantom (needs real keys; not run offline).
 
-**Verified:** `test_resolve_company_id.py` — verified match stored + cached, brand
-cache hit skips the resolver, bad match rejected (nothing stored, cache
-unpoisoned), deregistered skipped, no-match, and the `verify_match` branches.
-Full offline suite green.
+**Update (2026-07-07):** the resolver moved to a **no-auth public-page fetch** — the
+phantom search was flaky and the id is in the public HTML, no session/credits needed
+([ADR 0016 amendment 2026-07-07](../adr/0016-linkedin-phantombuster-ingestion.md#amendment-2026-07-07--resolver-pws2-is-a-no-auth-public-page-fetch);
+spike: [linkedin-acquisition](../spikes/linkedin-acquisition-approach.md)). New
+`linkedin_public.py`; `public_resolver()` is the default `Resolver`; `resolve_all`
+dropped `pb`; `live_resolver` (phantom) kept as a fallback. Verified live against
+Barchester/HC-One/Sanctuary/Care UK; deterministic.
+
+**Verified:** `test_resolve_company_id.py` + `test_linkedin_public.py` — verified match
+stored + cached, brand cache hit skips the resolver, bad match rejected, deregistered
+skipped, no-match, `verify_match` branches, slug candidates, public-page extraction,
+and the all-boilerplate-name fallback. Full offline suite green.
 
 ### PWS3 — consume profiles → `Person`/`Role`
 

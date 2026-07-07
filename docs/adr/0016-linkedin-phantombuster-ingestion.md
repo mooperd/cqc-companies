@@ -5,7 +5,10 @@
 [`mooperd/phantombuster-lib`](https://github.com/mooperd/phantombuster-lib)
 pivot the *acquisition mechanism* — see the Amendment below. **Amended
 2026-07-05:** the LinkedIn session cookie is Phantombuster's to manage, not ours
-to store per-user — see the second Amendment. The core decision
+to store per-user — see the second Amendment. **Amended 2026-07-07:** PWS2
+resolution moved off the Phantombuster phantom to a deterministic no-auth
+public-page fetch (people scraping stays on the store phantom) — see the third
+Amendment. The core decision
 (LinkedIn identification via Phantombuster → low-confidence `Person`/`Role`)
 stands; the store-phantom + spreadsheet-feed implementation is superseded.
 **Accepted after** the acquisition primitives were validated live (the resolver
@@ -120,6 +123,34 @@ just consuming it (e.g. we packaged it and, on 2026-07-02, fixed committed API
 keys in it via PR #1). That's an accepted cost: shared upkeep of the acquisition
 layer in exchange for not duplicating it. Pin the dependency to a commit/tag so
 upstream changes don't silently move under us.
+
+## Amendment (2026-07-07) — resolver (PWS2) is a no-auth public-page fetch
+
+The [acquisition spike](../spikes/linkedin-acquisition-approach.md) settled how the
+two halves are best acquired, and it splits them:
+
+- **Company-id resolution (PWS2) no longer uses the Phantombuster resolver phantom.**
+  The numeric id is in the **public** company page HTML (`urn:li:organization:<N>`)
+  with **no login** — a plain HTTP GET. The custom phantom's JS company-search was
+  flaky (worked once, empty the next; anti-bot on a fixed-`sleep` scrape) and its
+  About-page step hit `net::ERR_ABORTED`. The public fetch is **deterministic, needs
+  no session, spends no credits**. New module `linkedin_public.py` (slug-guess from
+  the name → fetch public page → extract id/name/HQ); `resolve_company_id.public_resolver()`
+  is now the default `Resolver`; `resolve_all` no longer needs a `pb`. The phantom
+  `live_resolver` is kept as a fallback.
+- **People discovery (PWS3) stays on the store Search Export** — a live *authenticated*
+  scrape at volume genuinely needs Phantombuster's managed session (Exp 2 proved it
+  returns real people once the session is fresh). Not self-hosted, not a custom phantom.
+
+Consequences: the public page's `sameAs` is an unreliable careers/marketing subdomain
+(e.g. `barchestercareers.com` vs the provider's `barchester.com`), so the resolver
+**omits website** and `verify_match` leans on name + HQ; whether domain-mismatch should
+be non-fatal (rather than omitted per-source) is a deferred `verify_match` question.
+`_names_similar` gained an all-boilerplate fallback so sector brands whose names are
+entirely stopwords ('Care UK' → care, uk) still match. **This corrects the earlier
+"cookie injection is a dead end" reading** — that was a stale session; a fresh `li_at`
+authenticates. The no-auth resolver is preferred on *simplicity/determinism*, not
+because the phantom is broken.
 
 ## Context
 

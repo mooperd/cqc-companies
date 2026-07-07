@@ -100,30 +100,27 @@ def pick_provider(session: Session, *, provider_id: int | None, name: str | None
     return provider
 
 
-def resolve(pb, session: Session, provider: Provider, *, force: bool,
+def resolve(session: Session, provider: Provider, *, force: bool,
             keywords: str | None = None) -> None:
-    """Run the live resolver, verify the match against our own website/town, and store
-    the LinkedIn company id (unless `force`, which stores an unverified match — for
-    eyeballing during a test).
+    """Resolve the provider to a LinkedIn company id via the **no-auth public company
+    page** (no session, no credits — spike: linkedin-acquisition), verify the match
+    against our own website/town, and store it.
 
-    Without `keywords` this searches on provider.name (the CQC-registered legal name
-    from the bulk CSV), whereas the production path (resolve_company_id.resolve_provider)
-    searches on the CQC Syndication `brandName` — the trading name LinkedIn actually
-    lists. LinkedIn's company search often finds nothing for a full legal name, so
-    `--keywords` lets you supply the trading brand directly (this tool takes no CQC
-    key, so it can't fetch brandName itself)."""
-    from resolver import resolve_ephemeral
+    `--keywords` overrides the search term (default: `provider.name`). The slug guesser
+    strips legal suffixes and drops trailing tokens, so the full CQC legal name
+    ('Barchester Healthcare Homes Limited') usually resolves to the brand slug
+    ('barchester-healthcare') without needing the trading brandName."""
+    from resolve_company_id import public_resolver
 
     term = keywords or provider.name
-    logger.info("resolving %r via the resolver…", term)
-    run = resolve_ephemeral(pb, term)
-    li = run.result[0] if run.result else None
+    logger.info("resolving %r via the public company page…", term)
+    li = public_resolver()(term)
     if not li or not li.get("companyId"):
-        sys.exit(f"resolver returned no company for {term!r}")
+        sys.exit(f"no public LinkedIn company page resolved for {term!r}")
 
     verified, reason = verify_match(
         li, brand_name=term, website=provider.website, town=provider.town_city)
-    print(f"  resolver → companyId={li.get('companyId')} "
+    print(f"  resolved → companyId={li.get('companyId')} "
           f"name={li.get('name')!r} vanity={li.get('vanity')!r}")
     print(f"  verify_match → {'PASS' if verified else 'REJECT'}: {reason}")
     if not verified and not force:
@@ -192,8 +189,9 @@ def main(argv: list[str] | None = None) -> int:
 
     api_key = os.environ.get("PHANTOMBUSTER_API_KEY")
     agent_id = os.environ.get("PB_SEARCH_EXPORT_AGENT")
-    if (args.resolve or args.scrape) and not api_key:
-        sys.exit("PHANTOMBUSTER_API_KEY required for a live run (see .env.local)")
+    # --resolve is no-auth (public page); only --scrape needs Phantombuster.
+    if args.scrape and not api_key:
+        sys.exit("PHANTOMBUSTER_API_KEY required for --scrape (see .env.local)")
     if args.scrape and not agent_id:
         sys.exit("PB_SEARCH_EXPORT_AGENT required for --scrape")
 
@@ -201,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     db.metadata.create_all(engine)
 
     pb = None
-    if args.resolve or args.scrape:
+    if args.scrape:
         from phantombuster import Phantombuster
         pb = Phantombuster(api_key)
 
@@ -216,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
             session.flush()
             print(f"  set linkedin_company_id = {args.company_id}")
         elif args.resolve:
-            resolve(pb, session, provider, force=args.force, keywords=args.keywords)
+            resolve(session, provider, force=args.force, keywords=args.keywords)
 
         if not args.scrape:
             session.commit()

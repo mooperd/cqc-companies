@@ -63,16 +63,23 @@ def _domain(url: str | None) -> str | None:
     return host or None
 
 
-def _name_tokens(name: str | None) -> set[str]:
-    """Significant lowercase word tokens of a company name (boilerplate removed)."""
+def _name_tokens(name: str | None, *, keep_stopwords: bool = False) -> set[str]:
+    """Significant lowercase word tokens of a company name (boilerplate removed).
+    `keep_stopwords` retains the boilerplate — used only as a fallback for names that
+    are *entirely* boilerplate (see `_names_similar`)."""
     words = re.findall(r"[a-z0-9]+", (name or "").lower())
-    return {w for w in words if w not in _NAME_STOPWORDS and len(w) > 1}
+    return {w for w in words if len(w) > 1 and (keep_stopwords or w not in _NAME_STOPWORDS)}
 
 
 def _names_similar(a: str | None, b: str | None) -> bool:
     """True if two company names share enough significant tokens to be the same
     firm — Jaccard ≥ 0.5, or one token set contained in the other."""
     ta, tb = _name_tokens(a), _name_tokens(b)
+    if not ta or not tb:
+        # A name made entirely of boilerplate — common in this sector ('Care UK' →
+        # care, uk both stopwords). Fall back to the full word sets so a real
+        # all-boilerplate brand still matches instead of being silently dropped.
+        ta, tb = _name_tokens(a, keep_stopwords=True), _name_tokens(b, keep_stopwords=True)
     if not ta or not tb:
         return False
     inter = ta & tb
@@ -165,7 +172,28 @@ def resolve_provider(
     return ResolveOutcome("resolved", reason, search_term=term, company_id=company_id)
 
 
-# --- Gated live driver (needs a Phantombuster key + LinkedIn session) ----------
+# --- No-auth resolver (the default: public company page, no session, no credits) --
+
+
+def public_resolver() -> Resolver:
+    """A `Resolver` that resolves a name to its LinkedIn company id from the **public**
+    company page — no login, no Phantombuster, no credits (ADR 0016 PWS2; spike:
+    linkedin-acquisition). Tries slug candidates most-specific-first and returns the
+    first whose page name matches the term, so a short slug hitting an unrelated firm
+    is skipped; `verify_match` downstream is the second gate."""
+    from linkedin_public import fetch_company, slug_candidates
+
+    def _resolve(term: str) -> dict | None:
+        for slug in slug_candidates(term):
+            page = fetch_company(slug)
+            if page and _names_similar(term, page.get("name")):
+                return page
+        return None
+
+    return _resolve
+
+
+# --- Gated live driver (the phantom path — flaky JS search; kept as a fallback) ---
 
 
 def live_resolver(pb, *, timeout: float = 280, poll: float = 6) -> Resolver:
@@ -182,10 +210,14 @@ def live_resolver(pb, *, timeout: float = 280, poll: float = 6) -> Resolver:
     return _resolve
 
 
-def resolve_all(session, cqc_client, pb, *, limit: int | None = None) -> dict[str, int]:
-    """Gated batch driver: resolve every active provider still missing a
-    linkedin_company_id, caching by brand. Caller commits. Needs live keys."""
-    resolve = live_resolver(pb)
+def resolve_all(session, cqc_client, *, resolve: Resolver | None = None,
+                limit: int | None = None) -> dict[str, int]:
+    """Batch driver: resolve every active provider still missing a
+    linkedin_company_id, caching by brand. Caller commits. Defaults to the no-auth
+    `public_resolver` (no Phantombuster); `cqc_client` still supplies the trading
+    brandName that makes the slug guess accurate. Pass `resolve=live_resolver(pb)`
+    to use the phantom path instead."""
+    resolve = resolve or public_resolver()
     cache: dict[str, str] = {}
     q = (session.query(Provider)
          .filter(Provider.active.is_(True),
@@ -217,12 +249,12 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     build_parser().parse_args(argv)
 
-    if not (os.environ.get("CQC_SUBSCRIPTION_KEY") and os.environ.get("PHANTOMBUSTER_API_KEY")):
-        sys.exit("CQC_SUBSCRIPTION_KEY and PHANTOMBUSTER_API_KEY are required for a live run.")
-    # Live wiring is intentionally left to the caller who has keys + a DB session;
-    # this entrypoint only validates configuration (mirrors enrich_linkedin's gate).
-    print("Configured. Wire a Session + call "
-          "resolve_all(session, CQC(cqc_key), Phantombuster(pb_key)).")
+    if not os.environ.get("CQC_SUBSCRIPTION_KEY"):
+        sys.exit("CQC_SUBSCRIPTION_KEY is required (the CQC brandName lookup that "
+                 "feeds the resolver). The resolver itself is no-auth — no Phantombuster.")
+    # Live wiring is intentionally left to the caller who has a key + a DB session;
+    # this entrypoint only validates configuration.
+    print("Configured. Wire a Session + call resolve_all(session, CQC(cqc_key)).")
 
 
 if __name__ == "__main__":
