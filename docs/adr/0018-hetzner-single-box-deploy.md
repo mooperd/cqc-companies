@@ -2,6 +2,16 @@
 
 **Status:** Accepted (2026-07-18).
 
+> **Amendment (2026-07-19 — backups are now required, not deferred).**
+> [ADR 0019](0019-scraped-data-lives-in-deployed-db.md) makes this box the
+> **authoritative** home for scraped LinkedIn `Person`/`Role` data — non-regenerable
+> state. That trips the "If the DB starts holding non-rebuildable state" walk-back
+> trigger below: "just rebuild it" is no longer a recovery path for those rows, so
+> **automated backups (Hetzner snapshots or `pg_dump` → object storage, with a
+> retention window) move from deferred to required.** Tracked as the immediate
+> follow-up in [the plan](../plans/linkedin-ingestion.md); until it lands, the box
+> is a single point of loss for the scraped rows.
+
 **TL;DR.** In the context of needing a hosted home for the app and its ~126 MB
 Postgres database after the AKS deploy was withdrawn ([ADR 0008](0008-aks-envsubst-deploy.md),
 [ADR 0009](0009-in-cluster-postgres.md)), facing a single low-traffic service

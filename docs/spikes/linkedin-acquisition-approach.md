@@ -18,6 +18,13 @@ but *not* because cookie injection fails.
 > resolver over fixing the custom phantom is a call on *simplicity* (no session, no
 > credits, no scrape fragility), not because the phantom is broken. The rest of this
 > doc predates the correction; read Exp 1's conclusion through this lens.
+>
+> **Residual (2026-07-19):** the About-page `ERR_ABORTED` fix (fall back to the base
+> URL on abort) was probed **locally in `.venv`'s `resolver_phantom.js` and is not
+> persisted anywhere real.** The phantom path is now only a fallback (`live_resolver`;
+> the default resolver is the no-auth `linkedin_public.py`). If that fallback is ever
+> revived, the fix belongs in the [`mooperd/phantombuster-lib`](https://github.com/mooperd/phantombuster-lib)
+> repo, not `.venv` — treat the `.venv` copy as disposable.
 
 **Question.** Our custom Phantombuster *resolver* phantom (company name → LinkedIn
 numeric id, PWS2) was returning **nothing** — an empty company-search page

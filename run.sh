@@ -24,7 +24,7 @@ if [ ! -f ".env" ]; then
     secret_key=$(python -c 'import secrets; print(secrets.token_hex(32))')
     cat > .env << EOF
 SECRET_KEY=$secret_key
-DATABASE_URL=postgresql://postgres:password@localhost:5432/crm_db
+DATABASE_URL=postgresql://darwinist:darwinist@localhost:5432/darwinist
 EOF
 fi
 

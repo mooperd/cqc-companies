@@ -27,9 +27,10 @@ These first ten ADRs were reverse-engineered from the codebase as of `2fe0977` (
 | 0015 | [Change-event files as the source of truth; the database as a projection](0015-data-freshness-strategy.md) | Accepted 2026-06-23 |
 | 0016 | [LinkedIn identification via Phantombuster (the phantom-run runtime)](0016-linkedin-phantombuster-ingestion.md) | Proposed (drafted ahead of Phase 3) |
 | 0017 | [GDPR controller posture for scraped contact data](0017-gdpr-controller-posture.md) | Proposed |
-| 0018 | [Single Hetzner Cloud box: app + self-managed Postgres, cloud-init provisioned](0018-hetzner-single-box-deploy.md) | Accepted 2026-07-18 |
+| 0018 | [Single Hetzner Cloud box: app + self-managed Postgres, cloud-init provisioned](0018-hetzner-single-box-deploy.md) | Accepted 2026-07-18 (amended 2026-07-19: backups required, see 0019) |
+| 0019 | [Scraped LinkedIn Person/Role data lives in the deployed Postgres, not a distributed change-set](0019-scraped-data-lives-in-deployed-db.md) | Accepted 2026-07-19 |
 
-Next available number: **0019** (projected: LinkedIn account hygiene / warming — see [`product-vision.md`](../product-vision.md) Phase 3). Numbers are assigned at write time; the roadmap's future numbers are projections, not reservations.
+Next available number: **0020** (projected: LinkedIn account hygiene / warming — see [`product-vision.md`](../product-vision.md) Phase 3). Numbers are assigned at write time; the roadmap's future numbers are projections, not reservations.
 
 ## Format
 

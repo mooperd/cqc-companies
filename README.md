@@ -89,12 +89,19 @@ layer you're dealing with:
   the API returns *now* — re-running reconstructs the shape, not a frozen snapshot.
 - **LinkedIn people: NOT reproducible from source.** Stage 5 is a live, gated
   scrape (Phantombuster + a LinkedIn session, [ADR 0017](docs/adr/0017-gdpr-controller-posture.md));
-  results are non-deterministic and depend on external state. These rows exist
-  **only** in a database dump, not in any committed input.
+  results are non-deterministic and depend on external state — re-running does
+  **not** reproduce the same rows. Their **authoritative home is the deployed
+  Postgres** ([ADR 0019](docs/adr/0019-scraped-data-lives-in-deployed-db.md)); the
+  scrape writes straight into it and everyone reads it there. Because they can't be
+  regenerated, that DB needs backups ([ADR 0018](docs/adr/0018-hetzner-single-box-deploy.md)
+  amendment).
 
-**Consequence:** to hand someone the *current, enriched* state (including CH +
-LinkedIn people), share a **`pg_dump`**, not the seeds. To hand them a
-*reproducible base*, the committed seed CSVs + the scripts are enough.
+**Consequence:** the *current, enriched* state (CH + LinkedIn people) lives in the
+deployed DB, not in any committed input. To run a **local copy**, either point
+`DATABASE_URL` at the deployed DB or restore a shared **`pg_dump`** (below) — the
+dump is a local-dev convenience, not the source of truth. To hand someone a
+*reproducible base* (CQC providers/facilities only), the committed seed CSVs + the
+scripts are enough.
 
 ### Working with a database dump
 

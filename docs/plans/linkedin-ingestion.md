@@ -298,6 +298,45 @@ this plan.)
 - [ ] **Live run** — execute the first gated identification run once keys + the
       ADR 0017 legal sign-off are in place, then close this plan.
 
+## Open follow-ups (post-2026-07-07 live test)
+
+A gated live run (Exp 2, `--limit 10`) returned 10 real people and the resolver
+moved to a no-auth public-page fetch ([ADR 0016 amendment 2026-07-07](../adr/0016-linkedin-phantombuster-ingestion.md#amendment-2026-07-07--resolver-pws2-is-a-no-auth-public-page-fetch)).
+These items remain, folded here from the resolved
+`linkedin-ingestion-followups` handoff:
+
+1. **Scraped-data home — DECIDED.** The distribution question is resolved:
+   scraped `Person`/`Role` data lives in the **deployed Postgres**, no change-set
+   mechanism ([ADR 0019](../adr/0019-scraped-data-lives-in-deployed-db.md)).
+
+2. **Backups — REQUIRED, not yet built (immediate next task).** ADR 0019 makes the
+   deployed DB authoritative for non-regenerable scraped rows, which trips
+   [ADR 0018](../adr/0018-hetzner-single-box-deploy.md)'s backup walk-back trigger.
+   Build automated backups — Hetzner snapshots or `pg_dump` → object storage — with
+   a **stated retention window** (that window also bounds the ADR 0017 §5
+   backup-erasure lag). Until this lands the box is a single point of loss.
+
+3. **ADR 0017 legal sign-off gates *production* scraping (external, not code).**
+   The erasure/suppression mechanism has shipped (`suppression.py`); what remains
+   is the LIA, privacy-notice wording, and ICO registration. The one gated live run
+   was a controlled test; ongoing/at-scale scraping waits on this. Keep the "Live
+   run" box open until legal clears production.
+
+4. **Resolver batch-scale polish (small–medium).** `resolve_all` is wired to
+   `public_resolver()` but never run over many providers. For batch scale:
+   - `linkedin_public._fetch` — add `Accept-Encoding: gzip` + connection reuse.
+   - A **golden real-page fixture** so LinkedIn markup drift fails CI loudly —
+     today the regex fails *closed* → silent resolution-rate drop; tests use
+     synthetic HTML only.
+   - Decide the deferred `verify_match` question: should a website-domain
+     **mismatch** be non-fatal (corroborating) rather than a hard reject? The
+     public resolver currently sidesteps it by omitting website entirely.
+
+5. **`pb_doctor` session-freshness check (small).** The doctor checks the cookie
+   **exists**, not that it's **valid** — a stale-but-present cookie passes yet the
+   scrape fails with `exit 84`. It could inspect the agent's last container for
+   `exit 84` and warn.
+
 ## References
 
 - [ADR 0016](../adr/0016-linkedin-phantombuster-ingestion.md) — the decision.

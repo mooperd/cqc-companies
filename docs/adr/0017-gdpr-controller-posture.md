@@ -9,6 +9,16 @@ registration) is **not** something this ADR or the code can certify — it remai
 external prerequisite that must be done by someone qualified **before the first
 live scrape**.*
 
+> **Amendment (2026-07-19 — erasure reaches the deployed store; backup-retention
+> lag).** [ADR 0019](0019-scraped-data-lives-in-deployed-db.md) makes the deployed
+> Postgres the authoritative home for scraped `Person`/`Role` data. §5 erasure now
+> DELETEs from that live store immediately (a strictly better posture than the
+> git-immutability that ruled out plaintext-in-git). The residual gap: a person
+> erased today still sits in **backups taken before the erasure** until they age
+> out. That lag must be bounded by a **stated backup-retention window** (owned by
+> the backup follow-up in [the plan](../plans/linkedin-ingestion.md)) and recorded
+> in the DSR runbook. Backups rotate, so this is bounded — unlike git history.
+
 <!--
 Not legal advice. This is the engineering/product decision record for how the
 system supports UK GDPR obligations; it points at where a lawyer's judgement is

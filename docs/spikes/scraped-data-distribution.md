@@ -1,7 +1,20 @@
 # Spike — distributing scraped (personal) data reproducibly
 
-**Status:** Open (design). Needs a decision before implementing. Raised 2026-07-06
+**Status:** Resolved (2026-07-19) by
+[ADR 0019](../adr/0019-scraped-data-lives-in-deployed-db.md). Raised 2026-07-06
 from the [README reproducibility section](../../README.md#reproducibility--read-this-before-sharing-data).
+
+> **Resolution.** The spike's premise — "git is the only shared channel, so choose
+> B (encrypted-in-git) or C (out-of-band store)" — changed when
+> [ADR 0018](../adr/0018-hetzner-single-box-deploy.md) stood up a single hosted
+> Postgres. That *is* the Option C store, so the answer is **C, lighter**: the
+> deployed DB is the authoritative home, the scrape writes straight into it, and
+> **no change-set emit/apply mechanism is built** — a single shared DB has nothing
+> to distribute to itself. The one obligation this creates is **automated backups**
+> (the deployed DB now holds non-regenerable state). See ADR 0019 for the full
+> decision, and its amendments to ADR 0018 (backups required) and ADR 0017 (erasure
+> reaches the live store; backup-retention window is the erasure lag). The analysis
+> below is retained as the record of how the options were weighed.
 
 ## Question
 
