@@ -1,0 +1,149 @@
+#cloud-config
+# Hetzner Cloud single-box provisioning for cqc-companies (ADR 0018).
+#
+# This file is STATIC and contains NO secrets and NO per-deploy values (domain,
+# passwords). It stands the box up to a working state: Postgres (localhost-only)
+# seeded from the PUBLIC CQC CSVs in the repo, the Flask app served by gunicorn
+# on 127.0.0.1:5000, and Caddy installed with a placeholder config.
+#
+# deploy/provision.sh finalises the variable/secret bits AFTER first boot:
+#   - writes the real Caddyfile (domain + HTTPS + basic-auth hash)
+#   - optionally rsyncs the local, gitignored pg_dump to restore the FULL
+#     enriched DB (person/role LinkedIn + Companies House tables), which the
+#     public CSVs alone cannot reproduce.
+#
+# Re-running provision.sh is idempotent; this file only runs once, at first boot.
+
+package_update: true
+package_upgrade: true
+
+packages:
+  # NB: the Ubuntu `postgresql` metapackage (PG16) is deliberately NOT listed —
+  # runcmd installs PostgreSQL 18 from the PGDG repo to match the local dump
+  # (Homebrew PG18). See ADR 0018.
+  - postgresql-common
+  - git
+  - rsync
+  - ufw
+  - curl
+  - gnupg
+  - python3-venv
+  - python3-pip
+  - python3-dev
+  - build-essential
+  - libpq-dev
+  - debian-keyring
+  - debian-archive-keyring
+  - apt-transport-https
+
+write_files:
+  # Stop needrestart from popping an interactive whiptail dialog during apt
+  # (the "pending kernel upgrade" prompt) — it has no terminal under cloud-init.
+  - path: /etc/needrestart/conf.d/99-cloudinit.conf
+    permissions: '0644'
+    content: |
+      $nrconf{restart} = 'a';
+      $nrconf{kernelhints} = 0;
+
+  # gunicorn service. WorkingDirectory=/opt/cqc so app.py's load_dotenv() picks
+  # up /opt/cqc/.env. ExecStartPre runs db.create_all() (idempotent) so the
+  # schema exists even on a fresh box before the first request — under gunicorn
+  # the app.py __main__ block (which normally calls create_tables()) never runs.
+  - path: /etc/systemd/system/cqc.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=cqc-companies Flask app (gunicorn)
+      After=network.target postgresql.service
+      Wants=postgresql.service
+
+      [Service]
+      Type=simple
+      User=cqc
+      Group=cqc
+      WorkingDirectory=/opt/cqc
+      Environment=PATH=/opt/cqc/.venv/bin
+      ExecStartPre=/opt/cqc/.venv/bin/python -c "from app import create_tables; create_tables()"
+      ExecStart=/opt/cqc/.venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5000 --timeout 120 app:app
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # NB: we deliberately do NOT pre-create /etc/caddy/Caddyfile here. The caddy
+  # .deb ships that path as a dpkg conffile; a pre-existing file triggers an
+  # interactive "replace conffile?" prompt during `apt-get install caddy` that
+  # fails under cloud-init (no tty) and leaves the package half-configured (no
+  # caddy user → 217/USER). Instead the package installs its own default
+  # Caddyfile, caddy starts on it, and provision.sh overwrites it with the real
+  # vhost once the box is up.
+
+runcmd:
+  # --- App user + code (public repo, no auth needed) ---
+  - useradd --system --create-home --home-dir /opt/cqc --shell /usr/sbin/nologin cqc || true
+  - git clone --depth 1 https://github.com/mooperd/cqc-companies.git /opt/cqc/src
+  - cp -r /opt/cqc/src/. /opt/cqc/
+  - rm -rf /opt/cqc/src /opt/cqc/.git
+  - chown -R cqc:cqc /opt/cqc
+
+  # --- Python venv + deps ---
+  - sudo -u cqc python3 -m venv /opt/cqc/.venv
+  - sudo -u cqc /opt/cqc/.venv/bin/pip install --upgrade pip wheel
+  - sudo -u cqc /opt/cqc/.venv/bin/pip install -r /opt/cqc/requirements.txt
+
+  # --- PostgreSQL 18 from the PGDG repo (matches the local Homebrew PG18 dump;
+  #     the box's default psql/GUCs then understand \restrict, transaction_timeout,
+  #     etc. that a PG18 pg_dump emits). Cluster listens on localhost only, which
+  #     is the PGDG default. ---
+  - DEBIAN_FRONTEND=noninteractive /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-18
+  - systemctl enable --now postgresql
+
+  # --- Postgres role + db + app .env, all in ONE shell block. cloud-init runs
+  #     runcmd under /bin/sh (dash), so this is POSIX sh (no `set -o pipefail`)
+  #     and wrapped in a ( ) subshell so `set -eu` cannot leak into later items.
+  #     Each runcmd list item is a SEPARATE shell, so the generated DBPASS/SECRET
+  #     MUST be created and consumed within this one block. localhost-only (PGDG
+  #     default); role password + SECRET_KEY are generated on-box, never leave. ---
+  - |
+    ( set -eu
+    DBPASS=$(openssl rand -hex 24)
+    SECRET=$(openssl rand -hex 32)
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='darwinist') THEN CREATE ROLE darwinist LOGIN PASSWORD '$DBPASS'; ELSE ALTER ROLE darwinist LOGIN PASSWORD '$DBPASS'; END IF; END \$\$;"
+    sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='darwinist'" | grep -q 1 || sudo -u postgres createdb -O darwinist darwinist
+    install -d -m 0750 -o cqc -g cqc /opt/cqc
+    umask 077
+    cat > /opt/cqc/.env <<EOF
+    FLASK_ENV=production
+    SECRET_KEY=$SECRET
+    DATABASE_URL=postgresql://darwinist:$DBPASS@localhost:5432/darwinist
+    EOF
+    chown cqc:cqc /opt/cqc/.env
+    chmod 0600 /opt/cqc/.env
+    )
+
+  # NB: data load is NOT done here. provision.sh owns the single load decision
+  # (restore the enriched dump if present, else seed from the repo CSVs) — doing
+  # it here too would build data that a dump restore immediately drops, and would
+  # block .cloud-init-complete on a multi-minute import. The schema still exists
+  # after boot: cqc.service's ExecStartPre runs db.create_all().
+
+  # --- Caddy (official apt repo) ---
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y caddy
+
+  # --- Firewall: SSH + HTTP/HTTPS only. Postgres (5432) and gunicorn (5000)
+  #     stay on loopback and are never opened. ---
+  - ufw allow OpenSSH
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw --force enable
+
+  # --- Enable services ---
+  - systemctl daemon-reload
+  - systemctl enable --now cqc.service
+  - systemctl enable --now caddy
+  - touch /opt/cqc/.cloud-init-complete
