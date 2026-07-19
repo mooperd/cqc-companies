@@ -26,7 +26,7 @@ environment, then `.env.local`, then `.env` — both gitignored. Put your token
 ```sh
 # .env.local  (gitignored)
 HCLOUD_TOKEN=...          # Hetzner Cloud API token, read+write
-DEPLOY_DOMAIN=cqc.example.com   # optional; or pass as the CLI arg
+DEPLOY_DOMAIN=crm.darwinist.io   # optional; or pass as the CLI arg
 ```
 
 You also need a **domain** to point at the box — Caddy issues TLS for it via
@@ -36,7 +36,7 @@ Let's Encrypt, so the A record must resolve to the box before HTTPS works.
 
 ```sh
 ./deploy/provision.sh                    # domain from DEPLOY_DOMAIN in .env.local
-./deploy/provision.sh cqc.example.com    # or pass it explicitly
+./deploy/provision.sh crm.darwinist.io    # or pass it explicitly
 ```
 
 That will:
@@ -47,16 +47,16 @@ That will:
 5. rsync + restore the newest local `darwinist-dump-*.sql.gz` (full enriched DB),
 6. print the URL, basic-auth credentials, and the IP to point DNS at.
 
-**Point the A record** (`cqc.example.com → <printed IP>`) so Caddy can issue the
+**Point the A record** (`crm.darwinist.io → <printed IP>`) so Caddy can issue the
 certificate. Re-running the script is safe — it reuses the existing server and
 skips the dump restore (unless `FORCE_RESTORE=1`).
 
 ## Common overrides
 
 ```sh
-SERVER_TYPE=cpx21 LOCATION=hel1 ./deploy/provision.sh cqc.example.com
-BASIC_AUTH_USER=rob BASIC_AUTH_PASS='choose-your-own' ./deploy/provision.sh cqc.example.com
-FORCE_RESTORE=1 ./deploy/provision.sh cqc.example.com     # re-restore the dump
+SERVER_TYPE=cpx21 LOCATION=hel1 ./deploy/provision.sh crm.darwinist.io
+BASIC_AUTH_USER=rob BASIC_AUTH_PASS='choose-your-own' ./deploy/provision.sh crm.darwinist.io
+FORCE_RESTORE=1 ./deploy/provision.sh crm.darwinist.io     # re-restore the dump
 ```
 
 ## Operate

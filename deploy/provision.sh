@@ -17,7 +17,7 @@
 # Usage:
 #   # put HCLOUD_TOKEN (and optionally DEPLOY_DOMAIN) in .env.local, then:
 #   ./deploy/provision.sh                     # domain from DEPLOY_DOMAIN
-#   ./deploy/provision.sh cqc.example.com     # or pass it explicitly
+#   ./deploy/provision.sh crm.darwinist.io     # or pass it explicitly
 #
 # Recognised keys (env var or .env.local line):
 #   HCLOUD_TOKEN=...        # Hetzner Cloud API token (read+write) — REQUIRED
