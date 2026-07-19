@@ -30,6 +30,14 @@
 #   BASIC_AUTH_PASS=...     # generated + printed if unset
 #   FORCE_RESTORE=1         # re-restore the dump even if already done once
 #
+# Backups (ADR 0019 — the deployed DB is the authoritative home for scraped data,
+# so offboard encrypted backups are required). Optional here: if BORG_REPO is
+# unset, the script generates + prints the box's backup SSH key and instructions,
+# and leaves backups pending. Set these (in .env.local) to finish wiring them:
+#   BORG_REPO=...          # Storage Box repo, e.g. ssh://uNNNN@uNNNN.your-storagebox.de/./cqc-companies
+#   BORG_PASSPHRASE=...    # borg repo passphrase; generated + printed if unset — STORE IT OFF-BOX
+#   BACKUP_KEEP_DAILY=14   # daily archives kept (this window is also the GDPR erasure-lag bound)
+#
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -66,6 +74,7 @@ LOCATION="${LOCATION:-nbg1}"
 SSH_PUBKEY="${SSH_PUBKEY:-$HOME/.ssh/id_ed25519.pub}"
 SSH_KEY_NAME="${SSH_KEY_NAME:-cqc-companies-key}"
 BASIC_AUTH_USER="${BASIC_AUTH_USER:-admin}"
+BACKUP_KEEP_DAILY="${BACKUP_KEEP_DAILY:-14}"
 
 # --- preflight ---
 command -v hcloud >/dev/null || { echo "ERROR: hcloud not installed (brew install hcloud)"; exit 1; }
@@ -116,19 +125,26 @@ until ssh "${SSH_OPTS[@]}" "root@$IP" 'test -f /opt/cqc/.cloud-init-complete' 2>
 done
 echo " done."
 
-# --- finalise Caddy (domain + HTTPS + basic-auth) ---
-# Resolve the basic-auth password idempotently: an explicit BASIC_AUTH_PASS wins;
-# otherwise reuse the one persisted on the box from a previous run; only generate
-# (and persist) a fresh one on first setup. Without this, every re-run would mint
-# a new random password and silently invalidate the old credentials.
-PASS_FILE=/opt/cqc/.basic_auth_pass
-if [ -z "${BASIC_AUTH_PASS:-}" ]; then
-  BASIC_AUTH_PASS="$(ssh "${SSH_OPTS[@]}" "root@$IP" "cat $PASS_FILE 2>/dev/null" || true)"
-  if [ -z "$BASIC_AUTH_PASS" ]; then
-    BASIC_AUTH_PASS="$(openssl rand -base64 15)"
-    GENERATED_PASS=1
+# Resolve a persisted secret idempotently: an explicit value ($1) wins; else reuse
+# the copy persisted on the box at $2; else generate `openssl rand -base64 $3`.
+# Returns via RESOLVED_SECRET; sets GENERATED=1 when it had to mint a fresh one.
+# (bash 3.2-safe — the operator's Mac — so no namerefs: results come back in globals.)
+resolve_or_generate_secret() {
+  local current="$1" remote_file="$2" rand_bytes="$3"
+  RESOLVED_SECRET="$current"; GENERATED=0
+  [ -n "$current" ] && return 0
+  RESOLVED_SECRET="$(ssh "${SSH_OPTS[@]}" "root@$IP" "cat $remote_file 2>/dev/null" || true)"
+  if [ -z "$RESOLVED_SECRET" ]; then
+    RESOLVED_SECRET="$(openssl rand -base64 "$rand_bytes")"; GENERATED=1
   fi
-fi
+}
+
+# --- finalise Caddy (domain + HTTPS + basic-auth) ---
+# Resolve the basic-auth password idempotently (explicit → persisted → generated),
+# so a re-run never mints a new random password and invalidates the old credentials.
+PASS_FILE=/opt/cqc/.basic_auth_pass
+resolve_or_generate_secret "${BASIC_AUTH_PASS:-}" "$PASS_FILE" 15
+BASIC_AUTH_PASS="$RESOLVED_SECRET"; GENERATED_PASS="$GENERATED"
 # Persist (600, root) so subsequent runs — and domain changes — keep this password.
 printf '%s' "$BASIC_AUTH_PASS" | ssh "${SSH_OPTS[@]}" "root@$IP" "install -m 600 /dev/stdin $PASS_FILE"
 echo "==> Finalising Caddy vhost for https://$DOMAIN (basic-auth user: $BASIC_AUTH_USER)"
@@ -188,6 +204,42 @@ REMOTE
   fi
 fi
 
+# --- Backups (ADR 0019): encrypted, offboard, retention-pruned Borg → Storage Box.
+#     The box needs an SSH key the Storage Box trusts; generate it here (idempotent)
+#     and surface its public half. If BORG_REPO is configured, finish wiring: write
+#     the secret-free-in-repo .backup.env, generate/persist the passphrase, init the
+#     repo, and take a first backup to validate. Otherwise print the operator step. ---
+echo "==> Configuring backups (BorgBackup)"
+BACKUP_PUBKEY="$(ssh "${SSH_OPTS[@]}" "root@$IP" 'bash -s' <<'REMOTE'
+set -euo pipefail
+install -d -m 700 /opt/cqc/.ssh
+if [ ! -f /opt/cqc/.ssh/backup_ed25519 ]; then
+  ssh-keygen -t ed25519 -N '' -C cqc-backup -f /opt/cqc/.ssh/backup_ed25519 >/dev/null
+fi
+chmod 600 /opt/cqc/.ssh/backup_ed25519
+cat /opt/cqc/.ssh/backup_ed25519.pub
+REMOTE
+)"
+
+if [ -n "${BORG_REPO:-}" ]; then
+  # Passphrase: explicit env → persisted-on-box → generated (same idiom as basic-auth).
+  BORG_PASS_FILE=/opt/cqc/.borg_passphrase
+  resolve_or_generate_secret "${BORG_PASSPHRASE:-}" "$BORG_PASS_FILE" 24
+  BORG_PASSPHRASE="$RESOLVED_SECRET"; GENERATED_BORG_PASS="$GENERATED"
+  printf '%s' "$BORG_PASSPHRASE" | ssh "${SSH_OPTS[@]}" "root@$IP" "install -m 600 /dev/stdin $BORG_PASS_FILE"
+  # Write the secret-free-in-repo config the backup script reads.
+  printf 'BORG_REPO=%s\nBACKUP_KEEP_DAILY=%s\n' "$BORG_REPO" "$BACKUP_KEEP_DAILY" \
+    | ssh "${SSH_OPTS[@]}" "root@$IP" 'install -m 600 /dev/stdin /opt/cqc/.backup.env'
+  echo "==> Initialising the repo + taking a first backup (validates repo + Storage Box reachability)"
+  if ssh "${SSH_OPTS[@]}" "root@$IP" 'bash /opt/cqc/deploy/backup.sh backup'; then
+    BACKUP_STATUS="configured — first backup taken (daily timer active; keep-daily=$BACKUP_KEEP_DAILY)"
+  else
+    BACKUP_STATUS="ERROR — first backup FAILED (check BORG_REPO reachability + that the key below is on the Storage Box)"
+  fi
+else
+  BACKUP_STATUS="PENDING — add the key below to a Storage Box + set BORG_REPO, then re-run"
+fi
+
 echo
 echo "======================================================================"
 echo " Provisioned: https://$DOMAIN"
@@ -196,4 +248,18 @@ echo "   Basic auth: $BASIC_AUTH_USER / ${BASIC_AUTH_PASS}"
 [ "${GENERATED_PASS:-0}" = "1" ] && echo "               (generated — store it; re-run with BASIC_AUTH_PASS=... to set your own)"
 echo "   SSH:        ssh -i $SSH_PRIVKEY root@$IP"
 echo "   App logs:   ssh root@$IP journalctl -u cqc -f"
+echo "   Backups:    $BACKUP_STATUS"
+if [ "${GENERATED_BORG_PASS:-0}" = "1" ]; then
+  echo "               Borg passphrase (generated): $BORG_PASSPHRASE"
+  echo "               *** STORE THIS OFF THE BOX. Without it the backups are"
+  echo "                   UNRECOVERABLE — it is not derivable from anything else. ***"
+fi
+if [ -z "${BORG_REPO:-}" ]; then
+  echo "   To enable backups (ADR 0019):"
+  echo "     1. Provision a Hetzner Storage Box."
+  echo "     2. Authorise this box's backup key on it (append to its .ssh/authorized_keys):"
+  echo "          ${BACKUP_PUBKEY}"
+  echo "     3. Set  BORG_REPO=ssh://uNNNN@uNNNN.your-storagebox.de/./cqc-companies  in .env.local"
+  echo "     4. Re-run ./deploy/provision.sh  (inits the repo + takes the first backup)"
+fi
 echo "======================================================================"

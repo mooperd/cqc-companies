@@ -32,6 +32,7 @@ packages:
   - python3-dev
   - build-essential
   - libpq-dev
+  - borgbackup           # encrypted offboard DB backups (ADR 0019); config via provision.sh
   - debian-keyring
   - debian-archive-keyring
   - apt-transport-https
@@ -70,6 +71,37 @@ write_files:
 
       [Install]
       WantedBy=multi-user.target
+
+  # Backup service + daily timer (ADR 0019). The units are STATIC and secret-free;
+  # the real config (BORG_REPO, passphrase, backup SSH key) is injected by
+  # provision.sh into /opt/cqc/.backup.env, which backup.sh sources itself (so it
+  # works for manual runs too) — until then backup.sh warns and no-ops. Runs as
+  # root so it can `sudo -u postgres pg_dump` and read the box's backup key/passphrase.
+  - path: /etc/systemd/system/cqc-backup.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=cqc-companies encrypted offboard DB backup (BorgBackup)
+      After=network-online.target postgresql.service
+      Wants=network-online.target postgresql.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash /opt/cqc/deploy/backup.sh
+
+  - path: /etc/systemd/system/cqc-backup.timer
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Daily cqc-companies DB backup
+
+      [Timer]
+      OnCalendar=*-*-* 03:17:00
+      Persistent=true
+      RandomizedDelaySec=600
+
+      [Install]
+      WantedBy=timers.target
 
   # NB: we deliberately do NOT pre-create /etc/caddy/Caddyfile here. The caddy
   # .deb ships that path as a dpkg conffile; a pre-existing file triggers an
@@ -146,4 +178,7 @@ runcmd:
   - systemctl daemon-reload
   - systemctl enable --now cqc.service
   - systemctl enable --now caddy
+  # Backup timer enabled now; backup.sh no-ops (warns) until provision.sh writes
+  # /opt/cqc/.backup.env with a real BORG_REPO — so the timer never fails pre-config.
+  - systemctl enable --now cqc-backup.timer
   - touch /opt/cqc/.cloud-init-complete

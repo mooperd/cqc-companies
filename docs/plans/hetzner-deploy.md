@@ -20,6 +20,12 @@ provisioned, with the full LinkedIn/Companies-House-enriched DB loaded.
       enriched-dump restore.
 - [x] `gunicorn` added to `requirements.txt`.
 - [x] `deploy/README.md` — run + operate instructions.
+- [x] **Backups mechanism** — `deploy/backup.sh` (encrypted Borg → Hetzner Storage
+      Box, `keep-daily=14`, restore drill) + `cqc-backup.{service,timer}` units in
+      cloud-init + provision.sh wiring. Required by
+      [ADR 0019](../adr/0019-scraped-data-lives-in-deployed-db.md) once the DB
+      became the authoritative home for scraped data. **Operator step remains:**
+      provision a Storage Box, authorise the box's backup key, set `BORG_REPO`.
 
 ## Next up (operator actions — needs a Hetzner token + a domain)
 
@@ -33,10 +39,12 @@ provisioned, with the full LinkedIn/Companies-House-enriched DB loaded.
 
 ## Open follow-ups (deferred, tracked here so they aren't lost)
 
-- **Backups.** No scheduled backup yet — acceptable only while the data stays
-  rebuildable. ADR 0018 names the trigger (non-rebuildable outreach state). When
-  it trips: nightly `pg_dump` to Hetzner object storage or a Storage Box, plus a
-  restore drill.
+- **Backups — mechanism built (see Done); operator step + first real run remain.**
+  The trigger tripped (ADR 0019: the DB is now the authoritative home for scraped
+  data). What's left is operational: provision a Storage Box, authorise the box's
+  backup key, set `BORG_REPO`, re-run provision.sh, and **verify the restore drill**
+  (`backup.sh restore-latest`) actually round-trips against the live box — the code
+  is untested against a real Storage Box until then.
 - **App deploy / update path.** cloud-init clones `main` once at first boot.
   There is no "push a new version" story yet — today it's `ssh` in, `git pull`
   in `/opt/cqc`, `pip install -r`, `systemctl restart cqc`. Formalise if updates

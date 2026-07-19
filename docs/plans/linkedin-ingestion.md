@@ -309,12 +309,17 @@ These items remain, folded here from the resolved
    scraped `Person`/`Role` data lives in the **deployed Postgres**, no change-set
    mechanism ([ADR 0019](../adr/0019-scraped-data-lives-in-deployed-db.md)).
 
-2. **Backups — REQUIRED, not yet built (immediate next task).** ADR 0019 makes the
-   deployed DB authoritative for non-regenerable scraped rows, which trips
-   [ADR 0018](../adr/0018-hetzner-single-box-deploy.md)'s backup walk-back trigger.
-   Build automated backups — Hetzner snapshots or `pg_dump` → object storage — with
-   a **stated retention window** (that window also bounds the ADR 0017 §5
-   backup-erasure lag). Until this lands the box is a single point of loss.
+2. **Backups — mechanism BUILT; operator step + real-Storage-Box verification
+   remain.** ADR 0019 made the deployed DB authoritative for non-regenerable
+   scraped rows, tripping [ADR 0018](../adr/0018-hetzner-single-box-deploy.md)'s
+   backup walk-back trigger. Built: `deploy/backup.sh` (encrypted Borg → Hetzner
+   Storage Box, `keep-daily=14` — that window is the ADR 0017 §5 erasure-lag bound)
+   + daily systemd timer + provision.sh wiring + a restore drill. **Remaining
+   (operational):** provision a Storage Box, authorise the box's backup key, set
+   `BORG_REPO`, and confirm `backup.sh restore-latest` round-trips on the live box.
+   See [`docs/plans/hetzner-deploy.md`](hetzner-deploy.md) and
+   [`deploy/README.md`](../../deploy/README.md#backups). Until the operator step is
+   done the box remains a single point of loss.
 
 3. **ADR 0017 legal sign-off gates *production* scraping (external, not code).**
    The erasure/suppression mechanism has shipped (`suppression.py`); what remains
