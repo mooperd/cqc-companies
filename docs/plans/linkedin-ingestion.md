@@ -325,9 +325,14 @@ These items remain, folded here from the resolved
 
 3. **ADR 0017 legal sign-off gates *production* scraping (external, not code).**
    The erasure/suppression mechanism has shipped (`suppression.py`); what remains
-   is the LIA, privacy-notice wording, and ICO registration. The one gated live run
-   was a controlled test; ongoing/at-scale scraping waits on this. Keep the "Live
-   run" box open until legal clears production.
+   is the **right-sized** floor — ICO registration + a one-page LIA + a one-page
+   privacy notice ([ADR 0017](../adr/0017-gdpr-controller-posture.md) amendment
+   2026-07-20; DPO not required at this scale). The one gated live run was a
+   controlled test; **new** at-scale scraping + real outreach wait on this. **But
+   the product demos ahead of sign-off** on ungated data (public CQC + CH +
+   non-personal resolver linkage + existing/synthetic people) — see
+   [`client-demo.md`](client-demo.md). Keep the "Live run" box open until legal
+   clears production.
 
 4. **Resolver: runnable + an off-box operational model (2026-07-20).** Built the
    runnable driver (`resolve_company_id.main`: `--limit`, `--dry-run`,

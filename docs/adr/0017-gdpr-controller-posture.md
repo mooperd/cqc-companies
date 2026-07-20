@@ -19,6 +19,25 @@ live scrape**.*
 > the backup follow-up in [the plan](../plans/linkedin-ingestion.md)) and recorded
 > in the DSR runbook. Backups rotate, so this is bounded — unlike git history.
 
+> **Amendment (2026-07-20 — right-sized compliance floor + demo-ahead-of-sign-off).**
+> This is a small, internal, two-user prospecting tool, so the §1/§8 obligations are
+> **right-sized, not skipped** (internal *user* count doesn't reduce the controller
+> duty — the *data subjects* + outreach do). The proportionate **floor** to lawfully
+> run production scraping + outreach is: **ICO registration** (~£40–60/yr), a
+> **one-page LIA** (§1), and a **one-page Art 14 privacy notice** (§6). A **DPO is
+> NOT required** at this scale (no large-scale monitoring / special-category data),
+> and the **ROPA** (§8) is a lightweight single table (possible Art 30 small-org
+> exemption). The §5 erasure mechanism already ships. The **CH-public-register-only
+> scope** (Walk-back) remains the lever to reduce the burden further.
+>
+> **Demo-ahead-of-sign-off:** the product may be demonstrated to the client on
+> **ungated data** *before* these steps are completed — public CQC + Companies House
+> (public register) data, the **non-personal** resolver company-id linkage
+> ([ADR 0016](0016-linkedin-phantombuster-ingestion.md) PWS2), and **existing or
+> synthetic** `Person`/`Role` rows. What stays gated behind the floor above:
+> **new at-scale LinkedIn people-scraping** and **real outreach** to scraped
+> individuals. See [`docs/plans/client-demo.md`](../plans/client-demo.md).
+
 <!--
 Not legal advice. This is the engineering/product decision record for how the
 system supports UK GDPR obligations; it points at where a lawyer's judgement is
