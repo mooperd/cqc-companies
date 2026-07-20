@@ -38,6 +38,27 @@ live scrape**.*
 > **new at-scale LinkedIn people-scraping** and **real outreach** to scraped
 > individuals. See [`docs/plans/client-demo.md`](../plans/client-demo.md).
 
+> **Amendment (2026-07-20 — pre-production controlled-scrape carve-out).** The gate
+> distinguishes **production** processing from a **pre-production** validation
+> pull. The controller's risk-based decision: a **limited, one-off pre-production
+> scrape** is permitted *before* the formal floor (ICO reg / LIA / notice) is
+> filed, to prove the LinkedIn people-enrichment for client approval of this stage,
+> **provided** every guardrail below holds. What still requires the full floor:
+> **production/at-scale scraping** and **any outreach** to scraped individuals.
+>
+> Guardrails for the pre-production pull (all required):
+> - **Small volume** — tens of contacts, a couple of providers, not a sweep.
+> - **Business-context data only** (§2 minimisation) — no special-category data.
+> - **Internal only, no outreach** — the Art 14 notice-at-contact duty (§6) and the
+>   objection sharp edge don't trigger until first contact, so **do not contact
+>   these people** until the notice is published + the floor is filed.
+> - **Erasure/suppression is live** (§5, `suppression.py`) — already shipped.
+> - **The formal floor is still completed before production + before outreach.**
+>
+> This is the controller's documented posture, **not legal clearance** — this ADR
+> and the code cannot certify it; the qualified-review of the LIA (§1) still stands.
+> Tracked in [`docs/plans/client-demo.md`](../plans/client-demo.md) DS3.
+
 <!--
 Not legal advice. This is the engineering/product decision record for how the
 system supports UK GDPR obligations; it points at where a lawyer's judgement is

@@ -71,9 +71,17 @@ full, clearly labelled demo/synthetic.
 
 - [x] DS1 — resolver coverage broadened (103 resolved) + applied on the box.
 - [x] DS2 — demo providers chosen; UI presents enrichment cleanly (clickable LinkedIn link).
-- [ ] DS3 — decided (seed synthetic, or existing CH-rich data is enough). *Leaning:
-      the CH-director richness already demos well; the LinkedIn-people panel stays
-      empty as the honest "switches on post-sign-off" story.*
+- [~] DS3 — **decided: a real pre-production scrape** (client needs to see real
+      LinkedIn people to approve this stage; [ADR 0017](../adr/0017-gdpr-controller-posture.md)
+      amended 2026-07-20 with the pre-production carve-out + guardrails). Wired to
+      run **on the box** (ADR 0019 — personal data authoritative there; Phantombuster
+      owns the LinkedIn session, so the box IP is irrelevant), auth via the env PB
+      key (injected client, no per-user encryption). **Blocked:** first run failed
+      `exit 84` = **stale LinkedIn session** (the #1 gotcha) — and `pb_doctor` gave a
+      **false green** (it checks the cookie *exists*, not *valid* — open follow-up
+      #4, now evidenced). Clean failure: 0 people, no credits. **Unblock:** reconnect
+      the LinkedIn session in Phantombuster (agent cookie **fingerprint must change**),
+      then re-run `scrape_demo.py <provider_id>` on the box.
 - [ ] A rehearsed walkthrough at `crm.darwinist.io` the client can be shown.
 
 ## References
