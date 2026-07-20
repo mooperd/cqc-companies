@@ -33,12 +33,14 @@ from dataclasses import dataclass
 from typing import Callable
 from urllib.parse import urlparse
 
-from sqlalchemy import create_engine
+import time
+
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from cqc import CQC  # phantombuster-lib's CQC Syndication client
 from resolver import search_term  # phantombuster-lib
-from model import Provider, db
+from model import Provider, Role, db
 
 logger = logging.getLogger(__name__)
 
@@ -215,21 +217,33 @@ def live_resolver(pb, *, timeout: float = 280, poll: float = 6) -> Resolver:
 
 
 def resolve_all(session, cqc_client, *, resolve: Resolver | None = None,
-                limit: int | None = None) -> dict[str, int]:
+                limit: int | None = None, sleep: float = 0.0,
+                richest_first: bool = False) -> dict[str, int]:
     """Batch driver: resolve every active provider still missing a
     linkedin_company_id, caching by brand. Caller commits. Defaults to the no-auth
     `public_resolver` (no Phantombuster); `cqc_client` still supplies the trading
     brandName that makes the slug guess accurate. Pass `resolve=live_resolver(pb)`
-    to use the phantom path instead."""
+    to use the phantom path instead.
+
+    `sleep` paces LinkedIn — a delay after each provider whose outcome actually hit
+    the resolver (not cache/skip), since even a residential IP throttles at volume.
+    `richest_first` orders by CH-role count desc, so a capped run resolves the
+    decision-maker-rich chains (the best demo/outreach targets) before the long tail
+    of small independents."""
     resolve = resolve or public_resolver()
     cache: dict[str, str] = {}
     q = (session.query(Provider)
          .filter(Provider.active.is_(True),
                  Provider.cqc_provider_id.isnot(None),
                  Provider.linkedin_company_id.is_(None)))
+    if richest_first:
+        role_ct = (select(func.count(Role.id))
+                   .where(Role.provider_id == Provider.id).scalar_subquery())
+        q = q.order_by(role_ct.desc())
     if limit:
         q = q.limit(limit)
 
+    _hit_resolver = {"resolved", "rejected", "no-match"}  # outcomes that fetched LinkedIn
     tally: dict[str, int] = {}
     for provider in q:
         try:
@@ -246,6 +260,8 @@ def resolve_all(session, cqc_client, *, resolve: Resolver | None = None,
         tally[outcome.status] = tally.get(outcome.status, 0) + 1
         logger.info("provider %s (%s): %s — %s", provider.id, provider.name,
                     outcome.status, outcome.reason)
+        if sleep and outcome.status in _hit_resolver:
+            time.sleep(sleep)
     return tally
 
 
@@ -262,6 +278,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="Resolve CQC providers to verified LinkedIn company ids.",
     )
     p.add_argument("--limit", type=int, default=None, help="cap providers processed")
+    p.add_argument("--sleep", type=float, default=0.0,
+                   help="seconds to pause after each LinkedIn fetch (pace to avoid "
+                        "throttling; e.g. 1.5)")
+    p.add_argument("--richest-first", action="store_true",
+                   help="resolve decision-maker-rich providers (most CH roles) first "
+                        "— the best demo/outreach targets, ahead of the long tail")
     p.add_argument("--dry-run", action="store_true",
                    help="resolve + log outcomes but roll back (write nothing)")
     p.add_argument("--emit-changeset", action="store_true",
@@ -324,7 +346,8 @@ def main(argv: list[str] | None = None) -> int:
             .filter(Provider.linkedin_company_id.isnot(None)).all()
         ) if args.emit_changeset else {}
 
-        tally = resolve_all(session, cqc_client, limit=args.limit)
+        tally = resolve_all(session, cqc_client, limit=args.limit,
+                            sleep=args.sleep, richest_first=args.richest_first)
 
         if args.dry_run:
             session.rollback()

@@ -48,11 +48,32 @@ If the people-layer panel looks thin on real data, seed a **synthetic** LinkedIn
 populated **without new scraping**. **Exit:** a demo provider whose people panel is
 full, clearly labelled demo/synthetic.
 
+## Progress (2026-07-20)
+
+- **DS1 done** — resolver gained `--sleep` (pacing) + `--richest-first` (resolve
+  decision-maker-rich providers first). Ran off-box against the local DB, emitted
+  `data/changes/linkedin-resolver-2026-07-20.json` (102 resolutions), applied on
+  the box → **103 providers resolved**. (A residential-IP DNS blip mid-run threw
+  ~56/200 `error`s per batch; fault-tolerance kept the batch alive and those stay
+  retryable. The full ~37k sweep is still an ongoing paced job.)
+- **DS2 done** — demo shortlist (resolved + CH-director-rich, LinkedIn company link
+  now clickable in `/provider/<id>`): **Marie Curie** (`/provider/3063`, 109
+  directors), **Leonard Cheshire Disability** (`/provider/1533`, 146), **Royal
+  Mencap Society** (`/provider/3371`, 106), **St John Ambulance** (`/provider/35558`,
+  107), **Combat Stress**, **Sense**. All render cleanly.
+- **Wrinkle noted:** `apply_pending` keys the ledger on *filename*, so a same-day
+  re-emit of an already-applied file is skipped — clear its `applied_event_file`
+  row to re-apply (the per-row guard keeps it idempotent). Normal operation emits a
+  *new* dated file each day, so this only bites same-day dev iteration. A
+  content-hash ledger would remove the wrinkle if it ever matters.
+
 ## Exit criteria
 
-- [ ] DS1 — resolver coverage broadened + applied on the box.
-- [ ] DS2 — 2–3 demo providers chosen; UI presents enrichment cleanly.
-- [ ] DS3 — decided (seed synthetic, or existing data is enough).
+- [x] DS1 — resolver coverage broadened (103 resolved) + applied on the box.
+- [x] DS2 — demo providers chosen; UI presents enrichment cleanly (clickable LinkedIn link).
+- [ ] DS3 — decided (seed synthetic, or existing CH-rich data is enough). *Leaning:
+      the CH-director richness already demos well; the LinkedIn-people panel stays
+      empty as the honest "switches on post-sign-off" story.*
 - [ ] A rehearsed walkthrough at `crm.darwinist.io` the client can be shown.
 
 ## References

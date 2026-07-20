@@ -29,7 +29,9 @@
                             <small>{{ provider.website }}</small></a><br>
                         {% endif %}
                         {% if provider.linkedin_company_id %}
-                        <span class="badge bg-light text-dark">LinkedIn company {{ provider.linkedin_company_id }}</span>
+                        <a href="https://www.linkedin.com/company/{{ provider.linkedin_company_id }}/"
+                           target="_blank" rel="noopener"
+                           class="badge bg-light text-dark text-decoration-none">LinkedIn company {{ provider.linkedin_company_id }} ↗</a>
                         {% endif %}
                     </div>
                 </div>

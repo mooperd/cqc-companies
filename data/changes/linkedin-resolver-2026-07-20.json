@@ -1,6 +1,354 @@
 {
   "resolved": [
     {
+      "cqc_provider_id": "1-101608814",
+      "linkedin_company_id": "1035010"
+    },
+    {
+      "cqc_provider_id": "1-101609372",
+      "linkedin_company_id": "1900553"
+    },
+    {
+      "cqc_provider_id": "1-101610298",
+      "linkedin_company_id": "2491349"
+    },
+    {
+      "cqc_provider_id": "1-101613059",
+      "linkedin_company_id": "9509648"
+    },
+    {
+      "cqc_provider_id": "1-101613338",
+      "linkedin_company_id": "2611918"
+    },
+    {
+      "cqc_provider_id": "1-101615156",
+      "linkedin_company_id": "6807057"
+    },
+    {
+      "cqc_provider_id": "1-101615593",
+      "linkedin_company_id": "20249470"
+    },
+    {
+      "cqc_provider_id": "1-101617404",
+      "linkedin_company_id": "1817686"
+    },
+    {
+      "cqc_provider_id": "1-101634268",
+      "linkedin_company_id": "6771729"
+    },
+    {
+      "cqc_provider_id": "1-101634354",
+      "linkedin_company_id": "273875"
+    },
+    {
+      "cqc_provider_id": "1-101634738",
+      "linkedin_company_id": "2418841"
+    },
+    {
+      "cqc_provider_id": "1-101634969",
+      "linkedin_company_id": "2127679"
+    },
+    {
+      "cqc_provider_id": "1-101635002",
+      "linkedin_company_id": "2539945"
+    },
+    {
+      "cqc_provider_id": "1-101635010",
+      "linkedin_company_id": "109813371"
+    },
+    {
+      "cqc_provider_id": "1-101635085",
+      "linkedin_company_id": "64164647"
+    },
+    {
+      "cqc_provider_id": "1-101635194",
+      "linkedin_company_id": "22206859"
+    },
+    {
+      "cqc_provider_id": "1-101635219",
+      "linkedin_company_id": "891120"
+    },
+    {
+      "cqc_provider_id": "1-101635227",
+      "linkedin_company_id": "7013475"
+    },
+    {
+      "cqc_provider_id": "1-101635260",
+      "linkedin_company_id": "9749783"
+    },
+    {
+      "cqc_provider_id": "1-101635268",
+      "linkedin_company_id": "64219591"
+    },
+    {
+      "cqc_provider_id": "1-101635293",
+      "linkedin_company_id": "3849812"
+    },
+    {
+      "cqc_provider_id": "1-101635325",
+      "linkedin_company_id": "1161595"
+    },
+    {
+      "cqc_provider_id": "1-101635351",
+      "linkedin_company_id": "9394220"
+    },
+    {
+      "cqc_provider_id": "1-101635454",
+      "linkedin_company_id": "19375326"
+    },
+    {
+      "cqc_provider_id": "1-101635554",
+      "linkedin_company_id": "63860171"
+    },
+    {
+      "cqc_provider_id": "1-101635714",
+      "linkedin_company_id": "78494836"
+    },
+    {
+      "cqc_provider_id": "1-101639606",
+      "linkedin_company_id": "708027"
+    },
+    {
+      "cqc_provider_id": "1-101639624",
+      "linkedin_company_id": "1050255"
+    },
+    {
+      "cqc_provider_id": "1-101640187",
+      "linkedin_company_id": "9883191"
+    },
+    {
+      "cqc_provider_id": "1-101641116",
+      "linkedin_company_id": "1181762"
+    },
+    {
+      "cqc_provider_id": "1-101641233",
+      "linkedin_company_id": "9885729"
+    },
+    {
+      "cqc_provider_id": "1-101645396",
+      "linkedin_company_id": "7289314"
+    },
+    {
+      "cqc_provider_id": "1-101649812",
+      "linkedin_company_id": "10665596"
+    },
+    {
+      "cqc_provider_id": "1-101649874",
+      "linkedin_company_id": "2693005"
+    },
+    {
+      "cqc_provider_id": "1-101651982",
+      "linkedin_company_id": "2957093"
+    },
+    {
+      "cqc_provider_id": "1-101659735",
+      "linkedin_company_id": "21351272"
+    },
+    {
+      "cqc_provider_id": "1-101662787",
+      "linkedin_company_id": "3845535"
+    },
+    {
+      "cqc_provider_id": "1-101663568",
+      "linkedin_company_id": "3962495"
+    },
+    {
+      "cqc_provider_id": "1-101663730",
+      "linkedin_company_id": "958096"
+    },
+    {
+      "cqc_provider_id": "1-101664348",
+      "linkedin_company_id": "10892920"
+    },
+    {
+      "cqc_provider_id": "1-101665163",
+      "linkedin_company_id": "5991246"
+    },
+    {
+      "cqc_provider_id": "1-101667631",
+      "linkedin_company_id": "4718117"
+    },
+    {
+      "cqc_provider_id": "1-101668381",
+      "linkedin_company_id": "524610"
+    },
+    {
+      "cqc_provider_id": "1-101669950",
+      "linkedin_company_id": "9737467"
+    },
+    {
+      "cqc_provider_id": "1-101671469",
+      "linkedin_company_id": "402857"
+    },
+    {
+      "cqc_provider_id": "1-101673126",
+      "linkedin_company_id": "31436"
+    },
+    {
+      "cqc_provider_id": "1-101676092",
+      "linkedin_company_id": "5486199"
+    },
+    {
+      "cqc_provider_id": "1-101676145",
+      "linkedin_company_id": "406721"
+    },
+    {
+      "cqc_provider_id": "1-101682217",
+      "linkedin_company_id": "6927472"
+    },
+    {
+      "cqc_provider_id": "1-101685567",
+      "linkedin_company_id": "35686203"
+    },
+    {
+      "cqc_provider_id": "1-101686414",
+      "linkedin_company_id": "12125351"
+    },
+    {
+      "cqc_provider_id": "1-101688318",
+      "linkedin_company_id": "1770881"
+    },
+    {
+      "cqc_provider_id": "1-101692736",
+      "linkedin_company_id": "9509648"
+    },
+    {
+      "cqc_provider_id": "1-101725068",
+      "linkedin_company_id": "14495066"
+    },
+    {
+      "cqc_provider_id": "1-101725208",
+      "linkedin_company_id": "1510963"
+    },
+    {
+      "cqc_provider_id": "1-101725224",
+      "linkedin_company_id": "21468944"
+    },
+    {
+      "cqc_provider_id": "1-101728101",
+      "linkedin_company_id": "19781060"
+    },
+    {
+      "cqc_provider_id": "1-101728210",
+      "linkedin_company_id": "6340866"
+    },
+    {
+      "cqc_provider_id": "1-101728227",
+      "linkedin_company_id": "1250601"
+    },
+    {
+      "cqc_provider_id": "1-101728271",
+      "linkedin_company_id": "1026744"
+    },
+    {
+      "cqc_provider_id": "1-101728306",
+      "linkedin_company_id": "1963910"
+    },
+    {
+      "cqc_provider_id": "1-101728350",
+      "linkedin_company_id": "2656288"
+    },
+    {
+      "cqc_provider_id": "1-101728385",
+      "linkedin_company_id": "375661"
+    },
+    {
+      "cqc_provider_id": "1-101728393",
+      "linkedin_company_id": "438757"
+    },
+    {
+      "cqc_provider_id": "1-101728519",
+      "linkedin_company_id": "2519279"
+    },
+    {
+      "cqc_provider_id": "1-101728579",
+      "linkedin_company_id": "63850523"
+    },
+    {
+      "cqc_provider_id": "1-101728587",
+      "linkedin_company_id": "7138810"
+    },
+    {
+      "cqc_provider_id": "1-101728803",
+      "linkedin_company_id": "2146900"
+    },
+    {
+      "cqc_provider_id": "1-101728837",
+      "linkedin_company_id": "3279283"
+    },
+    {
+      "cqc_provider_id": "1-101728845",
+      "linkedin_company_id": "1542356"
+    },
+    {
+      "cqc_provider_id": "1-102642607",
+      "linkedin_company_id": "19640201"
+    },
+    {
+      "cqc_provider_id": "1-102642667",
+      "linkedin_company_id": "2074514"
+    },
+    {
+      "cqc_provider_id": "1-102642684",
+      "linkedin_company_id": "53555"
+    },
+    {
+      "cqc_provider_id": "1-102642790",
+      "linkedin_company_id": "63942419"
+    },
+    {
+      "cqc_provider_id": "1-102642904",
+      "linkedin_company_id": "6983333"
+    },
+    {
+      "cqc_provider_id": "1-102642981",
+      "linkedin_company_id": "586752"
+    },
+    {
+      "cqc_provider_id": "1-102643017",
+      "linkedin_company_id": "1606960"
+    },
+    {
+      "cqc_provider_id": "1-102643113",
+      "linkedin_company_id": "877619"
+    },
+    {
+      "cqc_provider_id": "1-102643321",
+      "linkedin_company_id": "63792628"
+    },
+    {
+      "cqc_provider_id": "1-116992830",
+      "linkedin_company_id": "19285178"
+    },
+    {
+      "cqc_provider_id": "1-118163801",
+      "linkedin_company_id": "1213368"
+    },
+    {
+      "cqc_provider_id": "1-119229048",
+      "linkedin_company_id": "78884470"
+    },
+    {
+      "cqc_provider_id": "1-122682448",
+      "linkedin_company_id": "6254973"
+    },
+    {
+      "cqc_provider_id": "1-125892409",
+      "linkedin_company_id": "1859760"
+    },
+    {
+      "cqc_provider_id": "1-126776256",
+      "linkedin_company_id": "597862"
+    },
+    {
+      "cqc_provider_id": "1-131464940",
+      "linkedin_company_id": "5792927"
+    },
+    {
+      "cqc_provider_id": "1-142383121",
+      "linkedin_company_id": "6562783"
+    },
+    {
       "cqc_provider_id": "1-156963229",
       "linkedin_company_id": "102601843"
     },
@@ -9,12 +357,24 @@
       "linkedin_company_id": "103347127"
     },
     {
+      "cqc_provider_id": "1-167344266",
+      "linkedin_company_id": "21764453"
+    },
+    {
       "cqc_provider_id": "1-18316697286",
       "linkedin_company_id": "67427319"
     },
     {
       "cqc_provider_id": "1-18575096162",
       "linkedin_company_id": "7114258"
+    },
+    {
+      "cqc_provider_id": "1-191578524",
+      "linkedin_company_id": "977813"
+    },
+    {
+      "cqc_provider_id": "1-199793731",
+      "linkedin_company_id": "3658095"
     },
     {
       "cqc_provider_id": "1-21270624340",
