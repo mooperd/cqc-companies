@@ -25,6 +25,16 @@ but *not* because cookie injection fails.
 > the default resolver is the no-auth `linkedin_public.py`). If that fallback is ever
 > revived, the fix belongs in the [`mooperd/phantombuster-lib`](https://github.com/mooperd/phantombuster-lib)
 > repo, not `.venv` — treat the `.venv` copy as disposable.
+>
+> **Residual (2026-07-20) — the datacenter-IP wall hits the *no-auth public
+> resolver* too.** From the Hetzner box, `GET linkedin.com/company/<slug>/` returns
+> **HTTP 999 (authwall)**; from a residential IP the same request is **HTTP 200**
+> with the `companyId`. So the public resolver **cannot run on the box**. Operational
+> model (option C): run the resolver **off-box** (residential IP) → emit an
+> ADR-0015 `linkedin-resolver-<date>.json` change-set (non-personal company ids) →
+> replay on the box with `apply_events` (which touches no LinkedIn). The *people*
+> scrape is unaffected — it goes via Phantombuster's own proxies/session, not the
+> box IP. See [linkedin-ingestion plan](../plans/linkedin-ingestion.md) §4.
 
 **Question.** Our custom Phantombuster *resolver* phantom (company name → LinkedIn
 numeric id, PWS2) was returning **nothing** — an empty company-search page

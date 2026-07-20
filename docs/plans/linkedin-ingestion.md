@@ -329,15 +329,28 @@ These items remain, folded here from the resolved
    was a controlled test; ongoing/at-scale scraping waits on this. Keep the "Live
    run" box open until legal clears production.
 
-4. **Resolver batch-scale polish (small–medium).** `resolve_all` is wired to
-   `public_resolver()` but never run over many providers. For batch scale:
-   - `linkedin_public._fetch` — add `Accept-Encoding: gzip` + connection reuse.
-   - A **golden real-page fixture** so LinkedIn markup drift fails CI loudly —
-     today the regex fails *closed* → silent resolution-rate drop; tests use
-     synthetic HTML only.
-   - Decide the deferred `verify_match` question: should a website-domain
-     **mismatch** be non-fatal (corroborating) rather than a hard reject? The
-     public resolver currently sidesteps it by omitting website entirely.
+4. **Resolver: runnable + an off-box operational model (2026-07-20).** Built the
+   runnable driver (`resolve_company_id.main`: `--limit`, `--dry-run`,
+   `--emit-changeset`) and reconciled the key to `CQC_PRIMARY_KEY`/`SECONDARY`.
+   **Key operational finding:** the no-auth public resolver **works from a
+   residential IP but is authwalled (HTTP 999) from the Hetzner datacenter box** —
+   so it **cannot run on the box** (the acquisition spike's datacenter-IP wall
+   applies to the public resolver too). Operational model landed (option C):
+   - run the resolver **off-box** (a residential IP) against a local DB copy, with
+     `--emit-changeset` writing `data/changes/linkedin-resolver-<date>.json`
+     (non-personal company ids → plaintext-in-git is fine, ADR 0015/0019);
+   - **replay on the box** via `apply_events` (`apply_linkedin_resolver_file` +
+     `apply_pending` glob) — no LinkedIn touched there, so the box IP is fine;
+     idempotent (ledger + per-row guard).
+   - Also made `resolve_all` **fault-tolerant** — a per-provider CQC 5xx/timeout is
+     tallied `error` and the batch continues (a 37k run can't abort on one bad row).
+   - Proven end-to-end: 12/40 resolved off-box → change-set → applied on box
+     (1→13 resolved). **Still open:** the full ~37k sweep is an ongoing *paced*
+     job — even a residential IP throttles after enough rapid fetches, so add a
+     fetch delay + run in batches; and the earlier polish items remain:
+     `linkedin_public._fetch` gzip/connection-reuse, and a **golden real-page
+     fixture** so LinkedIn markup drift fails CI loudly (today the regex fails
+     *closed* → silent resolution-rate drop; tests use synthetic HTML only).
 
 5. **`pb_doctor` session-freshness check (small).** The doctor checks the cookie
    **exists**, not that it's **valid** — a stale-but-present cookie passes yet the

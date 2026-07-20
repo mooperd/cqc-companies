@@ -115,7 +115,29 @@ def test_apply_pending_idempotent():
     print("OK — apply_pending: ledger makes re-application a no-op")
 
 
+def test_apply_linkedin_resolver_file_sets_company_id_and_is_idempotent():
+    with _session_with_seed() as s, tempfile.TemporaryDirectory() as tmp:
+        changes = Path(tmp)
+        (changes / "linkedin-resolver-2026-07-20.json").write_text(json.dumps({
+            "resolved": [{"cqc_provider_id": "1-A", "linkedin_company_id": "5045635"},
+                         {"cqc_provider_id": "1-MISSING", "linkedin_company_id": "999"}],
+        }), encoding="utf-8")
+
+        first = ae.apply_pending(s, changes_dir=changes)
+        assert first["files"] == 1 and first["events"] == 1, first  # missing provider skipped
+        assert _by_prov(s, "1-A").linkedin_company_id == "5045635"
+        ev = s.query(ChangeEvent).filter_by(source="linkedin").one()
+        assert ev.change_type == "provider_updated" and ev.details["linkedin_company_id"] == "5045635"
+
+        # Ledger + per-row guard both make re-application a no-op.
+        second = ae.apply_pending(s, changes_dir=changes)
+        assert second["files"] == 0, second
+        assert s.query(ChangeEvent).filter_by(source="linkedin").count() == 1
+    print("OK — apply: linkedin-resolver file sets linkedin_company_id; missing provider skipped; idempotent")
+
+
 if __name__ == "__main__":
     test_apply_cqc_file_add_change_remove_deactivate()
     test_apply_pending_idempotent()
+    test_apply_linkedin_resolver_file_sets_company_id_and_is_idempotent()
     print("\nAll apply_events tests passed.")

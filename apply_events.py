@@ -151,8 +151,36 @@ def apply_cqc_file(session, payload: dict, observed_at) -> dict:
     return {"events": len(events), "providers_deactivated": deactivated}
 
 
+def apply_linkedin_resolver_file(session, payload: dict, observed_at) -> dict:
+    """Apply one linkedin-resolver-*.json: set `Provider.linkedin_company_id` from
+    the resolver's output. These are **non-personal** public company ids (ADR 0016
+    PWS2), so — unlike scraped Person/Role data (ADR 0019) — they distribute fine as
+    plaintext change-sets in git, reusing the ADR 0015 mechanism. The resolver runs
+    off-box (a residential IP; LinkedIn authwalls the datacenter box), emits this
+    file, and it replays here. Idempotent: an id already matching is skipped. Caller
+    commits."""
+    n = 0
+    for entry in payload.get("resolved", []):
+        pid, cid = entry["cqc_provider_id"], str(entry["linkedin_company_id"])
+        prov = session.query(Provider).filter_by(cqc_provider_id=pid).first()
+        if prov is None or prov.linkedin_company_id == cid:
+            continue
+        prov.linkedin_company_id = cid
+        session.add(ChangeEvent(observed_at=observed_at, source="linkedin",
+                                change_type="provider_updated", provider_id=prov.id,
+                                details={"linkedin_company_id": cid}))
+        n += 1
+    return {"events": n}
+
+
+# Change-set file prefix → applier. Both write ChangeEvent rows + a ledger entry.
+_APPLIERS = {"cqc-": apply_cqc_file, "linkedin-resolver-": apply_linkedin_resolver_file}
+
+
 def apply_pending(session, changes_dir: Path = CHANGES_DIR) -> dict:
-    """Apply every cqc-*.json not yet in the ledger, in date order. Idempotent.
+    """Apply every change-set file not yet in the ledger, in (prefix, date) order.
+    Idempotent. Handles cqc-*.json (CQC bulk deltas) and linkedin-resolver-*.json
+    (off-box company-id resolution, ADR 0016 PWS2).
 
     Note: companies-house-*.json files are produced AND applied inline by
     enrich_people (WS4) — it writes the ChangeEvent rows as it polls, so it does
@@ -160,17 +188,19 @@ def apply_pending(session, changes_dir: Path = CHANGES_DIR) -> dict:
     entries) for a from-scratch CH rebuild is deferred alongside the CQC
     `--rebuild` path (see docs/plans/data-freshness.md WS3/WS4)."""
     applied = {f.filename for f in session.query(AppliedEventFile)}
-    pending = sorted(p for p in changes_dir.glob("cqc-*.json") if p.name not in applied)
+    pending = sorted(p for prefix in _APPLIERS
+                     for p in changes_dir.glob(f"{prefix}*.json") if p.name not in applied)
     totals = {"files": 0, "events": 0, "providers_deactivated": 0}
     for path in pending:
+        apply = next(fn for prefix, fn in _APPLIERS.items() if path.name.startswith(prefix))
         payload = json.loads(path.read_text(encoding="utf-8"))
         observed_at = dt.datetime.now(dt.timezone.utc)
-        stats = apply_cqc_file(session, payload, observed_at)
+        stats = apply(session, payload, observed_at)
         session.add(AppliedEventFile(filename=path.name, applied_at=observed_at))
         session.commit()
         totals["files"] += 1
         totals["events"] += stats["events"]
-        totals["providers_deactivated"] += stats["providers_deactivated"]
+        totals["providers_deactivated"] += stats.get("providers_deactivated", 0)
         logger.info("applied %s — %s", path.name, stats)
     if not pending:
         logger.info("no pending change-event files")

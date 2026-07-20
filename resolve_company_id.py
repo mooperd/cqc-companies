@@ -264,7 +264,35 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=None, help="cap providers processed")
     p.add_argument("--dry-run", action="store_true",
                    help="resolve + log outcomes but roll back (write nothing)")
+    p.add_argument("--emit-changeset", action="store_true",
+                   help="also write this run's resolutions to "
+                        "data/changes/linkedin-resolver-<date>.json for ADR-0015 replay "
+                        "onto another DB (e.g. the box, which LinkedIn authwalls)")
     return p
+
+
+def emit_changeset(resolutions: list[dict], changes_dir: str = "data/changes") -> str:
+    """Write/merge this run's {cqc_provider_id, linkedin_company_id} resolutions into
+    a dated linkedin-resolver file (one per day; same-day re-runs accumulate, new id
+    wins). Non-personal company ids, so plaintext-in-git is fine (ADR 0015/0019).
+    Returns the path."""
+    import datetime as dt
+    import json
+    from pathlib import Path
+
+    d = Path(changes_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"linkedin-resolver-{dt.date.today().isoformat()}.json"
+    merged: dict[str, str] = {}
+    if path.exists():
+        for e in json.loads(path.read_text(encoding="utf-8")).get("resolved", []):
+            merged[e["cqc_provider_id"]] = str(e["linkedin_company_id"])
+    for e in resolutions:
+        merged[e["cqc_provider_id"]] = str(e["linkedin_company_id"])
+    payload = {"resolved": [{"cqc_provider_id": k, "linkedin_company_id": v}
+                            for k, v in sorted(merged.items())]}
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return str(path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -290,12 +318,28 @@ def main(argv: list[str] | None = None) -> int:
     cqc_client = CQC(key, partner_code=os.getenv("CQC_PARTNER_CODE"))
 
     with Session(engine) as session:
+        # Snapshot resolved ids before, so we can emit only THIS run's new ones.
+        before = dict(
+            session.query(Provider.cqc_provider_id, Provider.linkedin_company_id)
+            .filter(Provider.linkedin_company_id.isnot(None)).all()
+        ) if args.emit_changeset else {}
+
         tally = resolve_all(session, cqc_client, limit=args.limit)
+
         if args.dry_run:
             session.rollback()
             logger.info("dry-run: rolled back (nothing written)")
         else:
             session.commit()
+            if args.emit_changeset:
+                after = dict(
+                    session.query(Provider.cqc_provider_id, Provider.linkedin_company_id)
+                    .filter(Provider.linkedin_company_id.isnot(None)).all()
+                )
+                new = [{"cqc_provider_id": pid, "linkedin_company_id": cid}
+                       for pid, cid in sorted(after.items()) if before.get(pid) != cid]
+                path = emit_changeset(new)
+                logger.info("emitted %d resolution(s) -> %s", len(new), path)
     logger.info("done: %s", tally)
     return 0
 
