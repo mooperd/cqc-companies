@@ -232,8 +232,17 @@ def resolve_all(session, cqc_client, *, resolve: Resolver | None = None,
 
     tally: dict[str, int] = {}
     for provider in q:
-        outcome = resolve_provider(provider, cqc_client=cqc_client,
-                                   resolve=resolve, cache=cache)
+        try:
+            outcome = resolve_provider(provider, cqc_client=cqc_client,
+                                       resolve=resolve, cache=cache)
+        except Exception as exc:  # noqa: BLE001 — one flaky provider (a CQC 5xx, a
+            # timeout, a LinkedIn hiccup) must not abort a 37k-row batch. The CQC
+            # call is resolve_provider's first step, before any write, so nothing is
+            # half-applied; tally it and carry on.
+            tally["error"] = tally.get("error", 0) + 1
+            logger.warning("provider %s (%s): error — %s: %s",
+                           provider.id, provider.name, type(exc).__name__, exc)
+            continue
         tally[outcome.status] = tally.get(outcome.status, 0) + 1
         logger.info("provider %s (%s): %s — %s", provider.id, provider.name,
                     outcome.status, outcome.reason)

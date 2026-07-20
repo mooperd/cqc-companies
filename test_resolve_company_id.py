@@ -164,6 +164,35 @@ def test_no_match_when_resolver_finds_nothing():
     print("OK — resolve_provider: resolver returning nothing ⇒ no-match, nothing stored")
 
 
+# --- resolve_all (batch resilience) ------------------------------------------
+
+class RaisingCQC:
+    """CQC client that raises for one provider id (a transient 5xx), else returns
+    a resolvable row — to prove one flaky provider doesn't abort the batch."""
+
+    def __init__(self, bad_id):
+        self._bad = bad_id
+
+    def get_provider(self, provider_id):
+        if provider_id == self._bad:
+            raise RuntimeError(f"CQC API 500 for {provider_id}")
+        return {"brandName": "Acme", "brandId": f"BD-{provider_id}", "website": None}
+
+
+def test_resolve_all_continues_past_a_failing_provider():
+    with _session() as s:
+        for pid in ("1-OK1", "1-BOOM", "1-OK2"):
+            s.add(Provider(name=f"P {pid}", cqc_provider_id=pid, active=True))
+        s.flush()
+        li = {"companyId": "999", "name": "Acme", "website": None, "headquarters": None}
+        tally = rc.resolve_all(s, RaisingCQC(bad_id="1-BOOM"), resolve=lambda term: li)
+        s.commit()
+        assert tally.get("error") == 1, tally
+        assert tally.get("resolved") == 2, tally  # both good providers still resolved
+        assert s.query(Provider).filter(Provider.linkedin_company_id == "999").count() == 2
+    print("OK — resolve_all: a provider raising (CQC 5xx) is tallied 'error'; batch continues")
+
+
 if __name__ == "__main__":
     test_verify_website_domain_match_and_mismatch()
     test_verify_name_similarity_rejects_wrong_company()
