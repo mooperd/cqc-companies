@@ -33,8 +33,12 @@ from dataclasses import dataclass
 from typing import Callable
 from urllib.parse import urlparse
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+from cqc import CQC  # phantombuster-lib's CQC Syndication client
 from resolver import search_term  # phantombuster-lib
-from model import Provider
+from model import Provider, db
 
 logger = logging.getLogger(__name__)
 
@@ -236,25 +240,55 @@ def resolve_all(session, cqc_client, *, resolve: Resolver | None = None,
     return tally
 
 
+def cqc_key() -> str | None:
+    """The CQC Syndication subscription key: primary, falling back to secondary.
+    These are the canonical names in `.env.example` and match CQC's developer
+    portal ('primary'/'secondary' keys)."""
+    return os.getenv("CQC_PRIMARY_KEY") or os.getenv("CQC_SECONDARY_KEY")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="resolve_company_id",
         description="Resolve CQC providers to verified LinkedIn company ids.",
     )
     p.add_argument("--limit", type=int, default=None, help="cap providers processed")
+    p.add_argument("--dry-run", action="store_true",
+                   help="resolve + log outcomes but roll back (write nothing)")
     return p
 
 
-def main(argv: list[str] | None = None) -> None:
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    build_parser().parse_args(argv)
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    if not os.environ.get("CQC_SUBSCRIPTION_KEY"):
-        sys.exit("CQC_SUBSCRIPTION_KEY is required (the CQC brandName lookup that "
-                 "feeds the resolver). The resolver itself is no-auth — no Phantombuster.")
-    # Live wiring is intentionally left to the caller who has a key + a DB session;
-    # this entrypoint only validates configuration.
-    print("Configured. Wire a Session + call resolve_all(session, CQC(cqc_key)).")
+    from dotenv import load_dotenv
+    load_dotenv()
+    load_dotenv(".env.local", override=True)
+
+    key = cqc_key()
+    if not key:
+        sys.exit("CQC_PRIMARY_KEY (or CQC_SECONDARY_KEY) is required — the CQC "
+                 "brandName lookup feeds the resolver. Get one at "
+                 "https://api-portal.service.cqc.org.uk/. The LinkedIn resolver "
+                 "itself is no-auth (no Phantombuster).")
+
+    database_url = os.getenv(
+        "DATABASE_URL", "postgresql://darwinist:darwinist@localhost:5432/darwinist"
+    )
+    engine = create_engine(database_url)
+    db.metadata.create_all(engine)
+    cqc_client = CQC(key, partner_code=os.getenv("CQC_PARTNER_CODE"))
+
+    with Session(engine) as session:
+        tally = resolve_all(session, cqc_client, limit=args.limit)
+        if args.dry_run:
+            session.rollback()
+            logger.info("dry-run: rolled back (nothing written)")
+        else:
+            session.commit()
+    logger.info("done: %s", tally)
+    return 0
 
 
 if __name__ == "__main__":

@@ -136,7 +136,9 @@ existing dedup/no-CH-merge invariants preserved.
 ### PWS4 — schema + config
 
 **Status:** ✅ Done. `Provider.linkedin_company_id` landed in PWS2;
-`.env.example` gains `CQC_SUBSCRIPTION_KEY` (commit `d01b13f`; the
+`.env.example` gains the CQC key (commit `d01b13f`, originally
+`CQC_SUBSCRIPTION_KEY`; the resolver now reads the canonical
+`CQC_PRIMARY_KEY`/`CQC_SECONDARY_KEY` — 2026-07-20; the
 `LINKEDIN_SESSION_COOKIE` added then was removed 2026-07-05 —
 [ADR 0016 amendment](../adr/0016-linkedin-phantombuster-ingestion.md#amendment-2026-07-05--the-linkedin-session-is-phantombusters-not-ours),
 Phantombuster owns the LinkedIn session). **`PhantomRun`'s fate: kept as the optional per-scrape audit record**
