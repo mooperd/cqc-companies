@@ -150,6 +150,22 @@ Config (in `.env.local`, gitignored): `PHANTOMBUSTER_API_KEY`,
 [acquisition spike](docs/spikes/linkedin-acquisition-approach.md) for how this
 actually behaves against live LinkedIn.
 
+### Coverage is bounded by the scraping identity's network (not by config)
+
+The people-scrape runs a LinkedIn **people search** as a connected identity, and a
+**regular LinkedIn account only sees people within its own network** (2nd/3rd-degree
+connections). So the Search Export returns *the target company's employees who are in
+the scraping account's network* — often just a handful, sometimes zero, regardless of
+how big the company is. Verified 2026-07-21: with the per-search cap raised to 25,
+Marie Curie still returned only 3 and Leonard Cheshire 0 — the limiter is the
+identity's network, **not** `numberOfResultsPerSearch`.
+
+To get comprehensive employee lists (tens per company), the scraping identity needs
+**LinkedIn Sales Navigator** — Sales Nav search returns people beyond your own network.
+Without it, expect sparse, network-dependent yields; scrape many companies to
+accumulate. Operational session mechanics (the managed-identity cookie, `exit 84`
+vs `exit 1`) are in the [acquisition spike](docs/spikes/linkedin-acquisition-approach.md).
+
 ## Web UI
 
 `/` facilities · `/providers` (search/filter) · `/provider/<id>` (a provider's
