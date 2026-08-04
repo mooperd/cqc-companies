@@ -115,6 +115,10 @@ uv run python enrich_locations.py Locations.csv    # locations enrichment pass
 
 See ADR 0005 for the two-stage ingest pipeline and ADR 0006 for the bulk-insert strategy.
 
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the pull request process, branch naming, and merge conventions.
+
 ## Deployment
 
 **Currently none.** The previous AKS-based deploy story was removed on 2026-05-20 — the workflow under `.github/workflows/main.yml` and the `k8s/*.yaml` manifests are gone. The historical reasoning lives in [ADR 0008](docs/adr/0008-aks-envsubst-deploy.md) and [ADR 0009](docs/adr/0009-in-cluster-postgres.md), both Withdrawn. The next deploy target is a future decision; per [`docs/product-vision.md`](docs/product-vision.md), Phase 6 (the WhatsApp swap, which adds a public webhook receiver) is when the question reopens.
